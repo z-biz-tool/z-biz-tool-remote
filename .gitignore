@@ -1,6 +1,11 @@
 # macOS
 .DS_Store
 
+# Node.js
+node_modules/
+package-lock.json
+yarn.lock
+
 # IDE
 .vscode/
 .idea/

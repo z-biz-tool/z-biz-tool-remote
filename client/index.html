@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote Control</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <div id="main-panel">
+            <div class="header">
+                <h1>Remote Control</h1>
+                <div class="status-bar">
+                    <span id="connection-status" class="status offline">Offline</span>
+                </div>
+            </div>
+
+            <div class="device-info">
+                <h3>Device ID</h3>
+                <div id="device-id" class="device-id">Loading...</div>
+                <button id="copy-device-id" class="btn btn-secondary">Copy</button>
+            </div>
+
+            <div class="section">
+                <h3>Quick Actions</h3>
+                <button id="create-session" class="btn btn-primary">Create Session</button>
+                <button id="get-devices" class="btn btn-secondary">Refresh Devices</button>
+            </div>
+
+            <div class="section">
+                <h3>Join Session</h3>
+                <div class="form-group">
+                    <label>Session ID</label>
+                    <input type="text" id="session-id" placeholder="Enter session ID">
+                </div>
+                <div class="form-group">
+                    <label>Session Token</label>
+                    <input type="text" id="session-token" placeholder="Enter session token">
+                </div>
+                <button id="join-session" class="btn btn-primary">Join Session</button>
+            </div>
+
+            <div class="section">
+                <h3>Online Devices</h3>
+                <div id="devices-list" class="devices-list">No devices found</div>
+            </div>
+
+            <div class="section">
+                <h3>Session Info</h3>
+                <div id="session-info" class="session-info">
+                    <p>No active session</p>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Settings</h3>
+                <div class="form-group">
+                    <label>Frame Quality: <span id="quality-value">80</span>%</label>
+                    <input type="range" id="frame-quality" min="10" max="100" value="80">
+                </div>
+                <div class="form-group">
+                    <label>FPS: <span id="fps-value">15</span></label>
+                    <input type="range" id="fps" min="1" max="30" value="15">
+                </div>
+            </div>
+
+            <div class="footer">
+                <p>Server: ws://101.37.80.51:8080</p>
+            </div>
+        </div>
+
+        <div id="control-panel" class="hidden">
+            <div class="header">
+                <h2>Remote View</h2>
+                <button id="close-control" class="btn btn-danger">Close</button>
+            </div>
+            <div class="screen-container">
+                <canvas id="screen-canvas"></canvas>
+                <div id="screen-placeholder" class="placeholder">
+                    <p>Waiting for screen data...</p>
+                </div>
+            </div>
+            <div class="control-bar">
+                <button id="send-clipboard" class="btn btn-secondary">Sync Clipboard</button>
+                <button id="send-file" class="btn btn-secondary">Send File</button>
+                <input type="file" id="file-input" class="hidden">
+            </div>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>
