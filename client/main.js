@@ -17,6 +17,7 @@ let isHosting = false;
 let captureInterval = null;
 let frameQuality = 80;
 let fps = 15;
+let appClosing = false;
 
 const SERVER_URL = 'ws://101.37.80.51:8080';
 
@@ -96,8 +97,10 @@ function connectToServer() {
 
   ws.on('close', () => {
     console.log('Disconnected from server');
-    mainWindow?.webContents.send('server-disconnected');
-    setTimeout(connectToServer, 3000);
+    if (!appClosing) {
+      mainWindow?.webContents.send('server-disconnected');
+      setTimeout(connectToServer, 3000);
+    }
   });
 
   ws.on('error', (error) => {
@@ -329,7 +332,7 @@ function handleFileTransfer(data) {
 }
 
 function saveDeviceId(id) {
-  const configDir = path.join(app.getPath('appData'), 'RemoteControl');
+  const configDir = path.join(app.getPath('temp'), 'RemoteControl');
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true });
   }
@@ -338,7 +341,7 @@ function saveDeviceId(id) {
 }
 
 function loadDeviceId() {
-  const configDir = path.join(app.getPath('appData'), 'RemoteControl');
+  const configDir = path.join(app.getPath('temp'), 'RemoteControl');
   const configPath = path.join(configDir, 'config.json');
   try {
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -459,6 +462,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  appClosing = true;
   stopScreenCapture();
   if (ws) {
     ws.close();
