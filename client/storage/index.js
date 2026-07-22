@@ -19,7 +19,7 @@ class StorageManager {
 
   encrypt(data) {
     const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv('aes-256-gcm', Buffer.from(ENCRYPTION_KEY, 'utf-8'), iv);
+    const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
     let encrypted = cipher.update(JSON.stringify(data), 'utf-8', 'hex');
     encrypted += cipher.final('hex');
     const authTag = cipher.getAuthTag().toString('hex');
@@ -30,7 +30,7 @@ class StorageManager {
     try {
       const iv = Buffer.from(encryptedData.iv, 'hex');
       const authTag = Buffer.from(encryptedData.authTag, 'hex');
-      const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(ENCRYPTION_KEY, 'utf-8'), iv);
+      const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
       decipher.setAuthTag(authTag);
       let decrypted = decipher.update(encryptedData.encryptedData, 'hex', 'utf-8');
       decrypted += decipher.final('utf-8');
