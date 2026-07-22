@@ -3,6 +3,8 @@ const path = require('path');
 const WebSocket = require('ws');
 const { mouse, keyboard, Button, Key, Point } = require('@nut-tree/nut-js');
 const fs = require('fs');
+const storage = require('./storage');
+const i18n = require('./i18n');
 
 let mainWindow;
 let controlWindow;
@@ -23,15 +25,15 @@ const SERVER_URL = 'ws://101.37.80.51:8080';
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 900,
+    height: 700,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false
     },
-    title: 'Remote Control - Main',
+    title: i18n.t('app.title'),
     icon: path.join(__dirname, 'icons', 'icon.png')
   });
 
@@ -56,7 +58,7 @@ function createControlWindow() {
       contextIsolation: true,
       sandbox: false
     },
-    title: 'Remote Control - View',
+    title: i18n.t('control.title'),
     icon: path.join(__dirname, 'icons', 'icon.png')
   });
 
@@ -79,7 +81,7 @@ function connectToServer() {
 
   ws.on('open', () => {
     console.log('Connected to server');
-    const savedDeviceId = loadDeviceId();
+    const savedDeviceId = storage.getDeviceId();
     ws.send(JSON.stringify({
       type: 'REGISTER',
       deviceId: savedDeviceId
@@ -99,7 +101,8 @@ function connectToServer() {
     console.log('Disconnected from server');
     if (!appClosing) {
       mainWindow?.webContents.send('server-disconnected');
-      setTimeout(connectToServer, 3000);
+      const settings = storage.getSettings();
+      setTimeout(connectToServer, settings.reconnectInterval || 3000);
     }
   });
 
@@ -113,7 +116,12 @@ function handleServerMessage(data) {
     case 'REGISTER_SUCCESS': {
       deviceId = data.deviceId;
       encryptionKey = data.encryptionKey;
-      saveDeviceId(deviceId);
+      storage.saveDeviceId(deviceId);
+      storage.addAccessLog({
+        type: 'registered',
+        deviceId: deviceId,
+        action: 'Device registered successfully'
+      });
       mainWindow?.webContents.send('registered', { deviceId });
       break;
     }
@@ -122,6 +130,11 @@ function handleServerMessage(data) {
       sessionId = data.sessionId;
       sessionToken = data.sessionToken;
       isHosting = true;
+      storage.addSessionToHistory({
+        sessionId: data.sessionId,
+        sessionToken: data.sessionToken,
+        role: 'host'
+      });
       mainWindow?.webContents.send('session-created', { sessionId, sessionToken, deviceId });
       startScreenCapture();
       break;
@@ -131,6 +144,16 @@ function handleServerMessage(data) {
       sessionId = data.sessionId;
       targetDeviceId = data.hostId;
       isControlling = true;
+      storage.addDeviceToHistory({
+        id: data.hostId,
+        name: `Device ${data.hostId}`,
+        type: 'host'
+      });
+      storage.addSessionToHistory({
+        sessionId: data.sessionId,
+        role: 'client',
+        targetDeviceId: data.hostId
+      });
       mainWindow?.webContents.send('joined-session', { sessionId, hostId: data.hostId });
       createControlWindow();
       break;
@@ -142,6 +165,11 @@ function handleServerMessage(data) {
     }
 
     case 'CLIENT_JOINED': {
+      storage.addDeviceToHistory({
+        id: data.clientId,
+        name: `Device ${data.clientId}`,
+        type: 'client'
+      });
       mainWindow?.webContents.send('client-joined', { clientId: data.clientId });
       break;
     }
@@ -161,28 +189,54 @@ function handleServerMessage(data) {
     }
 
     case 'CONTROL_REQUEST': {
-      dialog.showMessageBox(mainWindow, {
-        type: 'question',
-        title: 'Control Request',
-        message: `Device ${data.fromId} wants to control your screen`,
-        buttons: ['Accept', 'Reject']
-      }).then((result) => {
-        if (result.response === 0) {
-          ws.send(JSON.stringify({
-            type: 'CONTROL_ACCEPT',
-            fromId: data.fromId,
-            sessionId: data.sessionId
-          }));
-          isHosting = true;
-          startScreenCapture();
-        } else {
-          ws.send(JSON.stringify({
-            type: 'CONTROL_REJECT',
-            fromId: data.fromId,
-            message: 'User rejected control request'
-          }));
-        }
-      });
+      const security = storage.getSecurity();
+      if (security.isTrustedDevice(data.fromId)) {
+        ws.send(JSON.stringify({
+          type: 'CONTROL_ACCEPT',
+          fromId: data.fromId,
+          sessionId: data.sessionId
+        }));
+        isHosting = true;
+        startScreenCapture();
+        storage.addAccessLog({
+          type: 'control_request_auto_accepted',
+          fromId: data.fromId,
+          reason: 'Trusted device'
+        });
+      } else {
+        dialog.showMessageBox(mainWindow, {
+          type: 'question',
+          title: i18n.t('notification.controlRequest', { id: data.fromId }),
+          message: `${i18n.t('notification.controlRequest', { id: data.fromId })}`,
+          buttons: [i18n.t('notification.accept'), i18n.t('notification.reject')]
+        }).then((result) => {
+          if (result.response === 0) {
+            ws.send(JSON.stringify({
+              type: 'CONTROL_ACCEPT',
+              fromId: data.fromId,
+              sessionId: data.sessionId
+            }));
+            isHosting = true;
+            startScreenCapture();
+            storage.addAccessLog({
+              type: 'control_request_accepted',
+              fromId: data.fromId,
+              action: 'User accepted control request'
+            });
+          } else {
+            ws.send(JSON.stringify({
+              type: 'CONTROL_REJECT',
+              fromId: data.fromId,
+              message: i18n.t('errors.permissionDenied')
+            }));
+            storage.addAccessLog({
+              type: 'control_request_rejected',
+              fromId: data.fromId,
+              action: 'User rejected control request'
+            });
+          }
+        });
+      }
       break;
     }
 
@@ -191,6 +245,11 @@ function handleServerMessage(data) {
       isControlling = true;
       createControlWindow();
       mainWindow?.webContents.send('control-accepted', { targetId: data.targetId });
+      storage.addAccessLog({
+        type: 'control_accepted',
+        targetId: data.targetId,
+        action: 'Successfully gained control'
+      });
       break;
     }
 
@@ -213,18 +272,27 @@ function handleServerMessage(data) {
     }
 
     case 'INPUT_EVENT': {
-      handleInputEvent(data.event);
+      const security = storage.getSecurity();
+      if (security.requirePermission || isHosting) {
+        handleInputEvent(data.event);
+      }
       break;
     }
 
     case 'CLIPBOARD_DATA': {
-      clipboard.writeText(data.data);
-      mainWindow?.webContents.send('clipboard-received', data.data);
+      const security = storage.getSecurity();
+      if (security.allowClipboardSync) {
+        clipboard.writeText(data.data);
+        mainWindow?.webContents.send('clipboard-received', data.data);
+      }
       break;
     }
 
     case 'FILE_TRANSFER': {
-      handleFileTransfer(data);
+      const security = storage.getSecurity();
+      if (security.allowFileTransfer) {
+        handleFileTransfer(data);
+      }
       break;
     }
 
@@ -262,7 +330,8 @@ async function startScreenCapture() {
             type: 'SCREEN_FRAME',
             sessionId: sessionId,
             frame: base64Frame,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            quality: frameQuality
           }));
         }
       }
@@ -325,29 +394,9 @@ function handleFileTransfer(data) {
   if (data.chunkIndex === data.totalChunks - 1) {
     dialog.showMessageBox(mainWindow, {
       type: 'info',
-      title: 'File Received',
-      message: `File saved to: ${filePath}`
+      title: i18n.t('notification.success'),
+      message: `${i18n.t('notification.success')}: ${filePath}`
     });
-  }
-}
-
-function saveDeviceId(id) {
-  const configDir = path.join(app.getPath('temp'), 'RemoteControl');
-  if (!fs.existsSync(configDir)) {
-    fs.mkdirSync(configDir, { recursive: true });
-  }
-  const configPath = path.join(configDir, 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify({ deviceId: id }));
-}
-
-function loadDeviceId() {
-  const configDir = path.join(app.getPath('temp'), 'RemoteControl');
-  const configPath = path.join(configDir, 'config.json');
-  try {
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    return config.deviceId;
-  } catch (e) {
-    return null;
   }
 }
 
@@ -433,10 +482,12 @@ ipcMain.on('get-online-devices', () => {
 
 ipcMain.on('set-frame-quality', (event, quality) => {
   frameQuality = quality;
+  storage.saveSettings({ frameQuality: quality });
 });
 
 ipcMain.on('set-fps', (event, newFps) => {
   fps = newFps;
+  storage.saveSettings({ fps: newFps });
   if (isHosting) {
     stopScreenCapture();
     startScreenCapture();
@@ -447,12 +498,81 @@ ipcMain.on('close-control-window', () => {
   controlWindow?.close();
 });
 
+ipcMain.on('get-settings', (event) => {
+  event.reply('settings', storage.getSettings());
+});
+
+ipcMain.on('save-settings', (event, settings) => {
+  storage.saveSettings(settings);
+  if (settings.language) {
+    i18n.setLang(settings.language);
+  }
+});
+
+ipcMain.on('get-history', (event) => {
+  event.reply('history', storage.getHistory());
+});
+
+ipcMain.on('clear-history', () => {
+  storage.clearHistory();
+});
+
+ipcMain.on('delete-device-history', (event, deviceId) => {
+  storage.deleteDeviceFromHistory(deviceId);
+});
+
+ipcMain.on('add-trusted-device', (event, deviceId) => {
+  storage.addTrustedDevice(deviceId);
+});
+
+ipcMain.on('remove-trusted-device', (event, deviceId) => {
+  storage.removeTrustedDevice(deviceId);
+});
+
+ipcMain.on('get-security', (event) => {
+  event.reply('security', storage.getSecurity());
+});
+
+ipcMain.on('save-security', (event, security) => {
+  storage.saveSecurity(security);
+});
+
+ipcMain.on('get-language', (event) => {
+  event.reply('language', i18n.getLang());
+});
+
+ipcMain.on('set-language', (event, lang) => {
+  i18n.setLang(lang);
+  storage.saveSettings({ language: lang });
+});
+
+ipcMain.on('get-translations', (event) => {
+  event.reply('translations', {
+    current: i18n.getLang(),
+    available: i18n.getAvailableLanguages()
+  });
+});
+
 app.commandLine.appendSwitch('--no-sandbox');
 app.commandLine.appendSwitch('--disable-gpu-sandbox');
 
 app.whenReady().then(() => {
+  const settings = storage.getSettings();
+  if (settings.language) {
+    i18n.setLang(settings.language);
+  }
+  if (settings.frameQuality) {
+    frameQuality = settings.frameQuality;
+  }
+  if (settings.fps) {
+    fps = settings.fps;
+  }
+
   createMainWindow();
-  connectToServer();
+  
+  if (settings.autoConnect !== false) {
+    connectToServer();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
