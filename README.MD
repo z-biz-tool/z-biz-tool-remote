@@ -1,5 +1,16 @@
 # z-biz-tool-remote
 
+> 跨平台远程控制桌面客户端 — 基于 Tauri 2 重写的 TeamViewer-like 应用
+
+![tech](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri)
+![tech](https://img.shields.io/badge/React-19-61DAFB?logo=react)
+![tech](https://img.shields.io/badge/AntD-6-0170FE?logo=antdesign)
+![tech](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript)
+![tech](https://img.shields.io/badge/Rust-stable-DEA584?logo=rust)
+![tech](https://img.shields.io/badge/xcap-0.9-orange)
+![tech](https://img.shields.io/badge/enigo-0.3-orange)
+![tech](https://img.shields.io/badge/ws-8.18-green)
+
 跨平台远程控制桌面客户端，参照同仓库 `z-biz-tool-*` 系列（Tauri 2 + React 19 + Vite + Rust）的项目结构改造自原 Electron 版。
 
 ## 功能
