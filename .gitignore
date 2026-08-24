@@ -1,33 +1,6 @@
-# macOS
-.DS_Store
-
-# Node.js
 node_modules/
-package-lock.json
-yarn.lock
-
-# IDE
-.vscode/
-.idea/
-*.iml
-*.iws
-*.ipr
-.classpath
-.project
-.settings/
-bin/
-
-# Build
-target/
-build/
-out/
-*.class
-*.jar
-*.war
-*.ear
-
-# Logs
+dist/
+src-tauri/target/
+src-tauri/gen/
 *.log
-
-# OS temp
-.tmp/
+.DS_Store
