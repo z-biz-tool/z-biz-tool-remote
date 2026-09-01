@@ -1,10 +1,9 @@
-import { Card, Input, List, Space, Typography } from "antd";
+import { Button, Card, Input, List, Space } from "antd";
 import { SendOutlined } from "@ant-design/icons";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { signaling } from "../services/signaling";
 import { t } from "../i18n";
-import type { SignalMessage } from "../types";
 
 interface ChatMessage {
   id: string;
@@ -18,12 +17,12 @@ interface ChatMessage {
 const { TextArea } = Input;
 
 export function ChatPanel() {
-  const { sessionId, targetDeviceId, deviceId } = useSessionStore();
+  const { sessionId, deviceId } = useSessionStore();
   const [messageText, setMessageText] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   // 监听聊天消息
-  useState(() => {
+  useEffect(() => {
     const off = signaling.on("chat-message", ({ message, fromId, timestamp }) => {
       const isMe = fromId === deviceId;
       const msg: ChatMessage = {
@@ -107,7 +106,7 @@ export function ChatPanel() {
                   >
                     {msg.isMe ? t("chat.me") : t("chat.remote")} - {formatTime(msg.timestamp)}
                   </div>
-                  <div style={{ color: "#333', fontSize: 14 }}>{msg.text}</div>
+                  <div style={{ color: "#333", fontSize: 14 }}>{msg.text}</div>
                 </div>
               </List.Item>
             )}

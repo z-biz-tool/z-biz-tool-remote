@@ -42,6 +42,8 @@ const zh: Dict = {
   "settings.requirePermission": "需要用户确认才能被控制",
   "settings.clipboardSync": "允许剪贴板同步",
   "settings.fileTransfer": "允许文件传输",
+  "settings.chat": "允许聊天",
+  "settings.monitor": "共享显示器",
   "settings.reconnect": "重连间隔 (ms)",
   "settings.save": "保存",
   "dialog.controlRequest": "设备 {id} 请求控制你的电脑",
@@ -60,6 +62,14 @@ const zh: Dict = {
   "toast.notControlling": "当前没有控制会话",
   "toast.notOnline": "目标设备不在线",
   "errors.permissionDenied": "用户拒绝",
+  "chat.empty": "暂无消息",
+  "chat.placeholder": "输入消息...",
+  "chat.me": "我",
+  "chat.remote": "对方",
+  "fileTransfer.title": "文件传输",
+  "fileTransfer.send": "发送文件",
+  "fileTransfer.receive": "待接受的文件",
+  "fileTransfer.progress": "传输进度",
 };
 
 type Vars = Record<string, string | number>;

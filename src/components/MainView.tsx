@@ -3,14 +3,17 @@ import { PlusOutlined, ReloadOutlined, CrownOutlined, DesktopOutlined } from "@a
 import { useState } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { signaling } from "../services/signaling";
-import { addTrusted, isTrusted, removeTrusted } from "../services/storage";
+import { addTrusted, isTrusted, removeTrusted, getSettings } from "../services/storage";
 import { t } from "../i18n";
 import { SettingsPanel } from "./SettingsPanel";
+import { FileTransferPanel } from "./FileTransferPanel";
+import { ChatPanel } from "./ChatPanel";
 
 export function MainView() {
   const { deviceId, onlineDevices, role, sessionId, setSession, setView } = useSessionStore();
   const [joinId, setJoinId] = useState("");
   const [joinToken, setJoinToken] = useState("");
+  const settings = getSettings();
 
   const onCreateSession = () => {
     if (!signaling.isOpen()) {
@@ -192,8 +195,10 @@ export function MainView() {
           )}
         </Card>
       </div>
-      <div style={{ width: 360, flexShrink: 0 }}>
+      <div style={{ width: 360, flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 }}>
         <SettingsPanel />
+        {settings.allowFileTransfer && <FileTransferPanel />}
+        {settings.allowChat && <ChatPanel />}
       </div>
     </div>
   );

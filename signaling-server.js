@@ -173,6 +173,104 @@ wss.on("connection", (ws) => {
         }
         break;
       }
+      case "FILE_TRANSFER_REQUEST": {
+        if (!deviceId) return;
+        const targetId = msg.targetId;
+        const targetWs = clients.get(targetId);
+        if (targetWs) {
+          send(targetWs, {
+            type: "FILE_TRANSFER_REQUEST",
+            fromId: deviceId,
+            fileName: msg.fileName,
+            fileSize: msg.fileSize,
+            sessionId: msg.sessionId,
+          });
+        }
+        break;
+      }
+      case "FILE_TRANSFER_ACCEPT": {
+        if (!deviceId) return;
+        const targetId = msg.targetId || msg.fromId;
+        const targetWs = clients.get(targetId);
+        if (targetWs) {
+          send(targetWs, {
+            type: "FILE_TRANSFER_ACCEPT",
+            fromId: deviceId,
+            sessionId: msg.sessionId,
+          });
+        }
+        break;
+      }
+      case "FILE_TRANSFER_REJECT": {
+        if (!deviceId) return;
+        const targetId = msg.targetId || msg.fromId;
+        const targetWs = clients.get(targetId);
+        if (targetWs) {
+          send(targetWs, {
+            type: "FILE_TRANSFER_REJECT",
+            fromId: deviceId,
+            sessionId: msg.sessionId,
+          });
+        }
+        break;
+      }
+      case "FILE_DATA": {
+        if (!deviceId) return;
+        const targetId = msg.targetId;
+        const targetWs = clients.get(targetId);
+        if (targetWs) {
+          send(targetWs, {
+            type: "FILE_DATA",
+            fromId: deviceId,
+            chunk: msg.chunk,
+            offset: msg.offset,
+            sessionId: msg.sessionId,
+          });
+        }
+        break;
+      }
+      case "FILE_TRANSFER_PROGRESS": {
+        if (!deviceId) return;
+        const targetId = msg.targetId || msg.fromId;
+        const targetWs = clients.get(targetId);
+        if (targetWs) {
+          send(targetWs, {
+            type: "FILE_TRANSFER_PROGRESS",
+            fromId: deviceId,
+            progress: msg.progress,
+            sessionId: msg.sessionId,
+          });
+        }
+        break;
+      }
+      case "CHAT_MESSAGE": {
+        if (!deviceId) return;
+        const targetId = msg.targetId;
+        const targetWs = clients.get(targetId);
+        if (targetWs) {
+          send(targetWs, {
+            type: "CHAT_MESSAGE",
+            fromId: deviceId,
+            message: msg.message,
+            sessionId: msg.sessionId,
+          });
+        }
+        break;
+      }
+      case "SYSTEM_NOTIFICATION": {
+        if (!deviceId) return;
+        const targetId = msg.targetId;
+        const targetWs = clients.get(targetId);
+        if (targetWs) {
+          send(targetWs, {
+            type: "SYSTEM_NOTIFICATION",
+            fromId: deviceId,
+            message: msg.message,
+            sessionId: msg.sessionId,
+          });
+        }
+        break;
+      }
       case "GET_ONLINE_DEVICES": {
         send(ws, { type: "ONLINE_DEVICES", devices: listOnlineDevices() });
         break;

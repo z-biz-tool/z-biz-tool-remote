@@ -13,6 +13,7 @@ export interface Settings {
   autoConnect: boolean;
   allowClipboardSync: boolean;
   allowFileTransfer: boolean;
+  allowChat: boolean;
   requirePermission: boolean;
   reconnectInterval: number; // ms
 }
@@ -24,7 +25,8 @@ export const DEFAULT_SETTINGS: Settings = {
   language: "zh-CN",
   autoConnect: true,
   allowClipboardSync: true,
-  allowFileTransfer: false,
+  allowFileTransfer: true,
+  allowChat: true,
   requirePermission: true,
   reconnectInterval: 3000,
 };

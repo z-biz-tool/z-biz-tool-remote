@@ -1,4 +1,4 @@
-import type { FileTransferState, InputEventPayload, SignalMessage } from "../types";
+import type { InputEventPayload, SignalMessage } from "../types";
 
 type EventHandler<T = unknown> = (payload: T) => void;
 
@@ -186,19 +186,23 @@ export class SignalingClient extends Emitter {
 
   // 文件传输
   sendFileTransferRequest(sessionId: string, fileName: string, fileSize: number, requestId: string) {
-    this.send({ type: "FILE_TRANSFER_REQUEST", sessionId, fileName, fileSize, fromId: requestId });
+    this.send({ type: "FILE_TRANSFER_REQUEST", sessionId, fileName, fileSize, requestId, fromId: this.deviceId ?? "" });
   }
 
   acceptFileTransfer(sessionId: string, requestId: string) {
-    this.send({ type: "FILE_TRANSFER_ACCEPT", sessionId, requestId, fromId: requestId });
+    this.send({ type: "FILE_TRANSFER_ACCEPT", sessionId, requestId, fromId: this.deviceId ?? "" });
   }
 
   rejectFileTransfer(sessionId: string, requestId: string, message?: string) {
-    this.send({ type: "FILE_TRANSFER_REJECT", sessionId, requestId, fromId: requestId, message });
+    this.send({ type: "FILE_TRANSFER_REJECT", sessionId, requestId, fromId: this.deviceId ?? "", message });
   }
 
   sendFileData(sessionId: string, requestId: string, data: string, isEnd: boolean) {
-    this.send({ type: "FILE_DATA", sessionId, requestId, data, isEnd, fromId: requestId });
+    this.send({ type: "FILE_DATA", sessionId, requestId, data, isEnd, fromId: this.deviceId ?? "" });
+  }
+
+  sendFileTransferProgress(sessionId: string, requestId: string, progress: number) {
+    this.send({ type: "FILE_TRANSFER_PROGRESS", sessionId, requestId, progress, fromId: this.deviceId ?? "" });
   }
 
   // 聊天消息

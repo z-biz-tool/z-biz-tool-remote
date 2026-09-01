@@ -72,6 +72,7 @@ export type SignalMessage =
       sessionId: string;
       fileName: string;
       fileSize: number;
+      requestId: string;
       fromId: string;
     }
   | {

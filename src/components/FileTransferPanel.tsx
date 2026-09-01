@@ -1,10 +1,8 @@
 import { Button, Card, List, Progress, Space, message } from "antd";
-import { UploadOutlined, DownloadOutlined, CloseOutlined } from "@ant-design/icons";
+import { UploadOutlined, CloseOutlined } from "@ant-design/icons";
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useSessionStore } from "../stores/sessionStore";
 import { signaling } from "../services/signaling";
-import { t } from "../i18n";
 import type { FileTransferRequest, FileTransferState } from "../types";
 
 // 文件传输请求队列
@@ -48,38 +46,6 @@ export function FileTransferPanel() {
       offComplete();
     };
   }, [sessionId, targetDeviceId]);
-
-  // 保存文件
-  const saveFile = async (requestId: string, fileName: string, data: string) => {
-    try {
-      // 将 base64 转换为 Blob
-      const base64Data = data.replace(/^data:.*;base64,/, "");
-      const byteCharacters = atob(base64Data);
-      const byteArrays = [];
-      for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-        const slice = byteCharacters.slice(offset, offset + 512);
-        const byteNumbers = new Array(slice.length);
-        for (let i = 0; i < slice.length; i++) {
-          byteNumbers[i] = slice.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        byteArrays.push(byteArray);
-      }
-      const blob = new Blob(byteArrays, { type: "application/octet-stream" });
-
-      // 使用 Tauri 的 FS 插件保存文件
-      const { writeBinaryFile } = await import("@tauri-apps/plugin-fs");
-      const dir = await invoke<string>("get_downloads_directory");
-      const filePath = `${dir}/${fileName}`;
-      await writeBinaryFile(filePath, new Uint8Array(await blob.arrayBuffer()));
-      message.success(`文件已保存到: ${filePath}`);
-      return true;
-    } catch (e) {
-      console.error("保存文件失败:", e);
-      message.error("保存文件失败: " + String(e));
-      return false;
-    }
-  };
 
   const acceptRequest = async (requestId: string) => {
     const request = fileTransferRequests.get(requestId);
@@ -268,15 +234,4 @@ export function FileTransferPanel() {
       </div>
     </Card>
   );
-}
-
-// 扩展 signaling 以支持进度通知
-if (!("sendFileTransferProgress" in signaling)) {
-  (signaling as any).sendFileTransferProgress = function (
-    sessionId: string,
-    requestId: string,
-    progress: number
-  ) {
-    this.send({ type: "FILE_TRANSFER_PROGRESS", sessionId, requestId, progress, fromId: this.deviceId ?? "" });
-  };
 }
