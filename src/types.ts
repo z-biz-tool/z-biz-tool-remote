@@ -65,7 +65,55 @@ export type SignalMessage =
       type: "ONLINE_DEVICES";
       devices: Array<{ id: string; name?: string; online: boolean }>;
     }
-  | { type: "PONG" };
+  | { type: "PONG" }
+  // 文件传输
+  | {
+      type: "FILE_TRANSFER_REQUEST";
+      sessionId: string;
+      fileName: string;
+      fileSize: number;
+      fromId: string;
+    }
+  | {
+      type: "FILE_TRANSFER_ACCEPT";
+      sessionId: string;
+      requestId: string;
+      fromId: string;
+    }
+  | {
+      type: "FILE_TRANSFER_REJECT";
+      sessionId: string;
+      requestId: string;
+      fromId: string;
+      message?: string;
+    }
+  | {
+      type: "FILE_DATA";
+      sessionId: string;
+      requestId: string;
+      data: string;
+      isEnd: boolean;
+      fromId: string;
+    }
+  | {
+      type: "FILE_TRANSFER_PROGRESS";
+      sessionId: string;
+      requestId: string;
+      progress: number;
+      fromId: string;
+    }
+  // 聊天消息
+  | {
+      type: "CHAT_MESSAGE";
+      sessionId: string;
+      message: string;
+      fromId: string;
+      timestamp: number;
+    }
+  // 系统事件
+  | { type: "SYSTEM_NOTIFICATION"; message: string; fromId: string };
+
+// ============ 内部输入事件负载类型 ============
 
 export type InputEventPayload =
   | { type: "mouse-move"; x: number; y: number }
@@ -74,7 +122,10 @@ export type InputEventPayload =
   | { type: "mouse-wheel"; deltaY: number; deltaX: number }
   | { type: "key-down"; key: string }
   | { type: "key-up"; key: string }
-  | { type: "key-type"; text: string };
+  | { type: "key-type"; text: string }
+  // 热键
+  | { type: "key-hotkey"; keys: string[] }
+  | { type: "screen-select"; displayId: number };
 
 // ============ 内部状态类型 ============
 
@@ -101,4 +152,23 @@ export interface HistoryEntry {
   name: string;
   type: "host" | "client";
   at: number;
+}
+
+// ============ 文件传输相关 ============
+
+export interface FileTransferRequest {
+  requestId: string;
+  fileName: string;
+  fileSize: number;
+  fromId: string;
+  timestamp: number;
+}
+
+export interface FileTransferState {
+  requestId: string;
+  fileName: string;
+  fileSize: number;
+  received: number;
+  progress: number;
+  status: "pending" | "accepting" | "transferring" | "completed" | "failed";
 }

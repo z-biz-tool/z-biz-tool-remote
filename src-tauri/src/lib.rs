@@ -10,9 +10,11 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             commands::capture_screen,
+            commands::capture_monitor,
             commands::list_displays,
             commands::simulate_input,
             commands::get_app_info,
+            commands::send_system_notification,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())

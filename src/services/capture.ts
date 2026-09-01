@@ -8,14 +8,17 @@ interface ScreenFrame {
   width: number;
   height: number;
   timestamp: number;
+  display_id: number;
 }
 
 let captureTimer: number | null = null;
 let captureInFlight = false;
 let lastSentTs = 0;
+let selectedDisplayId: number | null = null;
 
-export function startCaptureLoop() {
+export function startCaptureLoop(displayId?: number) {
   stopCaptureLoop();
+  selectedDisplayId = displayId ?? null;
   const tick = async () => {
     if (captureInFlight) return;
     const s = useSessionStore.getState();
@@ -23,9 +26,17 @@ export function startCaptureLoop() {
     if (!s.isHosting || !s.sessionId) return;
     captureInFlight = true;
     try {
-      const frame = await invoke<ScreenFrame>("capture_screen", {
-        quality: settings.frameQuality,
-      });
+      let frame: ScreenFrame;
+      if (selectedDisplayId !== null) {
+        frame = await invoke<ScreenFrame>("capture_monitor", {
+          displayId: selectedDisplayId,
+          quality: settings.frameQuality,
+        });
+      } else {
+        frame = await invoke<ScreenFrame>("capture_screen", {
+          quality: settings.frameQuality,
+        });
+      }
       // 节流：若上一帧还没发完，或短时间内已经有同 ts，跳过
       if (frame.timestamp === lastSentTs) return;
       lastSentTs = frame.timestamp;
@@ -52,8 +63,17 @@ export function stopCaptureLoop() {
   }
   captureInFlight = false;
   lastSentTs = 0;
+  selectedDisplayId = null;
 }
 
 export function isCapturing() {
   return captureTimer != null;
+}
+
+export function getSelectedDisplayId() {
+  return selectedDisplayId;
+}
+
+export function setSelectedDisplayId(id: number | null) {
+  selectedDisplayId = id;
 }

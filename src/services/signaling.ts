@@ -1,4 +1,4 @@
-import type { InputEventPayload, SignalMessage } from "../types";
+import type { FileTransferState, InputEventPayload, SignalMessage } from "../types";
 
 type EventHandler<T = unknown> = (payload: T) => void;
 
@@ -8,6 +8,10 @@ interface SignalingEvents {
   error: Event | unknown;
   message: SignalMessage;
   "screen-frame": { frame: string; fromId: string };
+  "file-transfer-request": { requestId: string; fileName: string; fileSize: number; fromId: string };
+  "file-transfer-progress": { requestId: string; progress: number; fromId: string };
+  "file-transfer-complete": { requestId: string; fileName: string; fromId: string };
+  "chat-message": { message: string; fromId: string; timestamp: number };
   "raw": unknown;
 }
 
@@ -73,8 +77,31 @@ export class SignalingClient extends Emitter {
       }
       this.emit("message", data);
       this.emit("raw", data);
+      
       if (data.type === "SCREEN_FRAME") {
         this.emit("screen-frame", { frame: data.frame, fromId: data.fromId ?? "" });
+      }
+      if (data.type === "FILE_TRANSFER_REQUEST") {
+        this.emit("file-transfer-request", {
+          requestId: data.requestId,
+          fileName: data.fileName,
+          fileSize: data.fileSize,
+          fromId: data.fromId,
+        });
+      }
+      if (data.type === "FILE_TRANSFER_PROGRESS") {
+        this.emit("file-transfer-progress", {
+          requestId: data.requestId,
+          progress: data.progress,
+          fromId: data.fromId,
+        });
+      }
+      if (data.type === "CHAT_MESSAGE") {
+        this.emit("chat-message", {
+          message: data.message,
+          fromId: data.fromId,
+          timestamp: data.timestamp,
+        });
       }
     };
 
@@ -155,6 +182,28 @@ export class SignalingClient extends Emitter {
 
   sendInputEvent(targetId: string, sessionId: string, event: InputEventPayload) {
     this.send({ type: "INPUT_EVENT", targetId, sessionId, event });
+  }
+
+  // 文件传输
+  sendFileTransferRequest(sessionId: string, fileName: string, fileSize: number, requestId: string) {
+    this.send({ type: "FILE_TRANSFER_REQUEST", sessionId, fileName, fileSize, fromId: requestId });
+  }
+
+  acceptFileTransfer(sessionId: string, requestId: string) {
+    this.send({ type: "FILE_TRANSFER_ACCEPT", sessionId, requestId, fromId: requestId });
+  }
+
+  rejectFileTransfer(sessionId: string, requestId: string, message?: string) {
+    this.send({ type: "FILE_TRANSFER_REJECT", sessionId, requestId, fromId: requestId, message });
+  }
+
+  sendFileData(sessionId: string, requestId: string, data: string, isEnd: boolean) {
+    this.send({ type: "FILE_DATA", sessionId, requestId, data, isEnd, fromId: requestId });
+  }
+
+  // 聊天消息
+  sendChatMessage(sessionId: string, message: string) {
+    this.send({ type: "CHAT_MESSAGE", sessionId, message, fromId: this.deviceId ?? "", timestamp: Date.now() });
   }
 
   closeSession() {
