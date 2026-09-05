@@ -5,6 +5,8 @@ const KEY_SETTINGS = "zbt-remote:settings";
 const KEY_HISTORY = "zbt-remote:history";
 const KEY_TRUSTED = "zbt-remote:trusted";
 const KEY_AUTH = "zbt-remote:auth";
+const KEY_SERVERS = "zbt-remote:servers";
+const MAX_SERVER_PRESETS = 10;
 
 export interface Settings {
   serverUrl: string;
@@ -64,6 +66,71 @@ export function setAuth(s: AuthSession | null) {
   } else {
     localStorage.setItem(KEY_AUTH, JSON.stringify(s));
   }
+}
+
+// ---------- server URL presets ----------
+
+export interface ServerPreset {
+  url: string;
+  label?: string;
+  lastUsedAt: number;
+}
+
+function readServerPresets(): ServerPreset[] {
+  const raw = localStorage.getItem(KEY_SERVERS);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(
+      (p) => p && typeof p.url === "string" && p.url.length > 0
+    ) as ServerPreset[];
+  } catch {
+    return [];
+  }
+}
+
+function writeServerPresets(arr: ServerPreset[]) {
+  localStorage.setItem(KEY_SERVERS, JSON.stringify(arr));
+}
+
+export function getServerPresets(): ServerPreset[] {
+  return readServerPresets().sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+}
+
+// Bump a server URL to the top of the list. If `label` is provided, store it.
+export function touchServer(url: string, label?: string) {
+  if (!url) return;
+  const now = Date.now();
+  const existing = readServerPresets();
+  const filtered = existing.filter((p) => p.url !== url);
+  filtered.unshift({ url, label, lastUsedAt: now });
+  writeServerPresets(filtered.slice(0, MAX_SERVER_PRESETS));
+}
+
+export function addServer(url: string, label?: string) {
+  if (!url) return;
+  const existing = readServerPresets();
+  if (existing.some((p) => p.url === url)) {
+    touchServer(url, label);
+    return;
+  }
+  const now = Date.now();
+  existing.unshift({ url, label, lastUsedAt: now });
+  writeServerPresets(existing.slice(0, MAX_SERVER_PRESETS));
+}
+
+export function removeServer(url: string) {
+  const existing = readServerPresets();
+  writeServerPresets(existing.filter((p) => p.url !== url));
+}
+
+export function renameServer(url: string, label: string) {
+  const existing = readServerPresets();
+  const i = existing.findIndex((p) => p.url === url);
+  if (i < 0) return;
+  existing[i] = { ...existing[i], label };
+  writeServerPresets(existing);
 }
 
 export function getSettings(): Settings {

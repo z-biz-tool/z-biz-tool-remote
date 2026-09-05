@@ -1,10 +1,17 @@
-import { Button, Card, Form, Input, InputNumber, Select, Slider, Space, Switch, message } from "antd";
+import { Button, Card, Form, Input, InputNumber, List, Popconfirm, Select, Slider, Space, Switch, Tag, message } from "antd";
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore } from "../stores/settingsStore";
 import { t } from "../i18n";
 import { useSessionStore } from "../stores/sessionStore";
 import { startCaptureLoop, setSelectedDisplayId } from "../services/capture";
+import {
+  getServerPresets,
+  addServer,
+  removeServer,
+  touchServer,
+  type ServerPreset,
+} from "../services/storage";
 
 interface DisplayInfo {
   id: number;
@@ -40,13 +47,38 @@ export function SettingsPanel() {
 
   const onSave = () => {
     update(draft);
+    touchServer(draft.serverUrl);
     message.success("设置已保存");
-    
+    setPresets(getServerPresets());
+
     // 如果正在托管且显示器切换了，重启捕获
     if (isHosting && sessionId && selectedDisplay !== null) {
       setSelectedDisplayId(selectedDisplay);
       startCaptureLoop(selectedDisplay);
     }
+  };
+
+  const [presets, setPresets] = useState<ServerPreset[]>(getServerPresets());
+  const [newServerUrl, setNewServerUrl] = useState("");
+  const refreshPresets = () => setPresets(getServerPresets());
+
+  const onAddServer = () => {
+    const url = newServerUrl.trim();
+    if (!url) return;
+    addServer(url);
+    setNewServerUrl("");
+    refreshPresets();
+    message.success("已添加");
+  };
+  const onPickServer = (url: string) => {
+    setDraft({ ...draft, serverUrl: url });
+    touchServer(url);
+    refreshPresets();
+    message.info(`已选择 ${url} (点保存应用)`);
+  };
+  const onRemoveServer = (url: string) => {
+    removeServer(url);
+    refreshPresets();
   };
 
   const handleDisplayChange = (value: number) => {
@@ -65,6 +97,56 @@ export function SettingsPanel() {
             onChange={(e) => setDraft({ ...draft, serverUrl: e.target.value })}
             placeholder="ws://host:port"
           />
+        </Form.Item>
+
+        <Form.Item label="已保存的服务器 (点切换,保存后应用)">
+          <List
+            size="small"
+            dataSource={presets}
+            locale={{ emptyText: "还没有保存的服务器" }}
+            renderItem={(p) => {
+              const isCurrent = p.url === draft.serverUrl;
+              return (
+                <List.Item
+                  actions={[
+                    !isCurrent && (
+                      <Button key="pick" size="small" type="link" onClick={() => onPickServer(p.url)}>
+                        使用
+                      </Button>
+                    ),
+                    <Popconfirm
+                      key="del"
+                      title="确认删除?"
+                      okText="删除"
+                      cancelText="取消"
+                      onConfirm={() => onRemoveServer(p.url)}
+                    >
+                      <Button size="small" type="link" danger>
+                        删除
+                      </Button>
+                    </Popconfirm>,
+                  ].filter(Boolean)}
+                >
+                  <Space>
+                    {isCurrent && <Tag color="blue">当前</Tag>}
+                    <span style={{ fontFamily: "monospace" }}>{p.url}</span>
+                    {p.label && <span style={{ color: "#999" }}>({p.label})</span>}
+                  </Space>
+                </List.Item>
+              );
+            }}
+          />
+          <Space.Compact style={{ width: "100%", marginTop: 8 }}>
+            <Input
+              value={newServerUrl}
+              onChange={(e) => setNewServerUrl(e.target.value)}
+              placeholder="ws://other-server:8080"
+              onPressEnter={onAddServer}
+            />
+            <Button type="primary" onClick={onAddServer}>
+              添加
+            </Button>
+          </Space.Compact>
         </Form.Item>
         
         {role === "host" && (

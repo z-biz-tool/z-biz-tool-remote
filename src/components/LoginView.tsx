@@ -1,10 +1,10 @@
-import { Button, Card, Form, Input, Space, Switch, Tabs, Tag, Typography, message } from "antd";
+import { AutoComplete, Button, Card, Form, Input, Space, Switch, Tabs, Tag, Typography, message } from "antd";
 import { ApiOutlined, DisconnectOutlined, UserAddOutlined, LoginOutlined } from "@ant-design/icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { signaling } from "../services/signaling";
-import { getAuth } from "../services/storage";
+import { getAuth, getServerPresets, touchServer, type ServerPreset } from "../services/storage";
 import * as api from "../services/api";
 import { t } from "../i18n";
 
@@ -20,7 +20,13 @@ export function LoginView() {
   );
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [presets, setPresets] = useState<ServerPreset[]>([]);
   const lastConn = useRef<string | null>(null);
+
+  // Refresh preset list whenever the field changes (so we can pick from the dropdown)
+  useEffect(() => {
+    setPresets(getServerPresets());
+  }, [serverUrl]);
 
   useEffect(() => {
     const prev = lastConn.current;
@@ -49,8 +55,18 @@ export function LoginView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const autoCompleteOptions = useMemo(
+    () =>
+      presets.map((p) => ({
+        value: p.url,
+        label: p.label ? `${p.label}  (${p.url})` : p.url,
+      })),
+    [presets]
+  );
+
   async function doAuth() {
-    if (!serverUrl.trim()) {
+    const url = serverUrl.trim();
+    if (!url) {
       message.error("请填写服务器地址");
       return;
     }
@@ -64,16 +80,18 @@ export function LoginView() {
     }
     setBusy(true);
     try {
-      const base = api.serverUrlToHttpBase(serverUrl.trim());
+      const base = api.serverUrlToHttpBase(url);
       const sess =
         mode === "register"
           ? await api.register(base, username, password)
           : await api.login(base, username, password);
-      update({ serverUrl: serverUrl.trim(), autoConnect });
+      // Bump this server to the top of the preset list so it shows up first next time
+      touchServer(url, username.includes("@") ? undefined : undefined);
+      update({ serverUrl: url, autoConnect });
       setConnection("connecting");
       signaling.setReconnectInterval(settings.reconnectInterval);
       signaling.connect({
-        url: serverUrl.trim(),
+        url,
         deviceId,
         deviceName: deviceName || sess.user.username,
         token: sess.accessToken,
@@ -105,12 +123,18 @@ export function LoginView() {
     <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <Card style={{ width: 480 }} title={<Space><ApiOutlined /><span>{t("login.title")}</span></Space>}>
         <Form layout="vertical" onSubmitCapture={onSubmit}>
-          <Form.Item label={t("login.server")}>
-            <Input
+          <Form.Item label={t("login.server")} extra="下拉选择历史服务器,或直接输入新地址">
+            <AutoComplete
               value={serverUrl}
-              onChange={(e) => setServerUrl(e.target.value)}
-              placeholder="ws://host:port"
+              onChange={(v) => setServerUrl(v)}
+              options={autoCompleteOptions}
               disabled={connection === "online"}
+              placeholder="ws://host:port"
+              filterOption={(input, opt) =>
+                (opt?.value as string).toLowerCase().includes(input.toLowerCase()) ||
+                (opt?.label as string || "").toLowerCase().includes(input.toLowerCase())
+              }
+              allowClear
             />
           </Form.Item>
 
