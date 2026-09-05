@@ -72,6 +72,11 @@ export function LoginView() {
       message.error("请填写服务器地址");
       return;
     }
+    // Must be ws:// or wss://. Just the host[:port], no path / token.
+    if (!/^wss?:\/\/[^\s/?#]+(?::\d+)?\/?$/.test(url)) {
+      message.error("服务器地址格式: ws://host:port 或 wss://host:port(或域名,如 wss://signaling.example.com)");
+      return;
+    }
     if (!/^[a-zA-Z0-9_\-]{3,32}$/.test(username)) {
       message.error("用户名 3-32 字符,只能含字母数字 _ -");
       return;
@@ -125,13 +130,13 @@ export function LoginView() {
     <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <Card style={{ width: 480 }} title={<Space><ApiOutlined /><span>{t("login.title")}</span></Space>}>
         <Form layout="vertical" onSubmitCapture={onSubmit}>
-          <Form.Item label={t("login.server")} extra="下拉选择历史服务器,或直接输入新地址">
+          <Form.Item label={t("login.server")} extra="下拉选择历史服务器,或直接输入新地址 (ws://host:port 或 wss://domain)">
             <AutoComplete
               value={serverUrl}
               onChange={(v) => setServerUrl(v)}
               options={autoCompleteOptions}
               disabled={connection === "online"}
-              placeholder="ws://host:port"
+              placeholder="ws://101.37.80.51:8080"
               filterOption={(input, opt) =>
                 (opt?.value as string).toLowerCase().includes(input.toLowerCase()) ||
                 (opt?.label as string || "").toLowerCase().includes(input.toLowerCase())
