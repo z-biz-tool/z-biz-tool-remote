@@ -67,15 +67,18 @@ pub fn get_app_info() -> AppInfo {
 
 // 新增：发送系统通知（用于聊天消息等）
 #[tauri::command]
-pub fn send_system_notification(message: String) -> Result<(), String> {
+pub fn send_system_notification(
+    app: tauri::AppHandle,
+    message: String,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use tauri_plugin_notification::NotificationExt;
-        let app = tauri::AppHandle::app();
-        app.notify()
+        app.notification()
+            .builder()
             .title("远程控制通知")
-            .body(&message)
-            .send()
+            .body(message)
+            .show()
             .map_err(|e| e.to_string())?;
     }
     Ok(())
