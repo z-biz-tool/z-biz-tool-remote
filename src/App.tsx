@@ -260,25 +260,35 @@ export default function App() {
             (msg as { ephemeral?: boolean }).ephemeral === true ||
             sessId.startsWith("auto-") ||
             sessId === "";
-          if (isTrusted(fromId)) {
+          const sameUser = (msg as { sameUser?: boolean }).sameUser === true;
+          const accept = () => {
             signaling.acceptControl(fromId, sessId, isEphemeral);
             useSessionStore.getState().setHosting(true);
+          };
+          // Auto-accept (no dialog) in any of these cases:
+          //   1. requester is in our trust list
+          //   2. settings say no permission required
+          //   3. server confirms both sides are owned by the same account
+          //      (i.e. this is "my other device" asking to be controlled)
+          if (isTrusted(fromId)) {
+            accept();
             addTrusted(fromId);
             break;
           }
           if (!useSettingsStore.getState().settings.requirePermission) {
-            signaling.acceptControl(fromId, sessId, isEphemeral);
-            useSessionStore.getState().setHosting(true);
+            accept();
+            break;
+          }
+          if (sameUser) {
+            accept();
+            message.info(`已自动接受来自同账号设备 ${fromId} 的控制请求`);
             break;
           }
           Modal.confirm({
             title: t("dialog.controlRequest", { id: fromId }),
             okText: t("dialog.accept"),
             cancelText: t("dialog.reject"),
-            onOk: () => {
-              signaling.acceptControl(fromId, sessId, isEphemeral);
-              useSessionStore.getState().setHosting(true);
-            },
+            onOk: accept,
             onCancel: () => {
               signaling.rejectControl(fromId, sessId, t("errors.permissionDenied"));
             },

@@ -41,6 +41,10 @@ export type SignalMessage =
       targetId?: string;
       sessionId?: string;
       ephemeral?: boolean;
+      // Server-set: true when both requester and target are owned by the
+      // same user account. Client uses this to skip the permission dialog
+      // for "control my other device" flows.
+      sameUser?: boolean;
     }
   | {
       type: "CONTROL_ACCEPT";
