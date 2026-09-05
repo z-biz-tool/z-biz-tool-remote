@@ -4,14 +4,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { signaling } from "../services/signaling";
-import { getAuth, getServerPresets, touchServer, type ServerPreset } from "../services/storage";
+import { getAuth, getServerPresets, touchServer, displayUrl, type ServerPreset } from "../services/storage";
 import * as api from "../services/api";
 import { t } from "../i18n";
 
 export function LoginView() {
   const { connection, deviceId, setConnection, lastError } = useSessionStore();
   const { settings, update } = useSettingsStore();
-  const [serverUrl, setServerUrl] = useState(settings.serverUrl);
+  // Always show the URL without any ?token=… (the token is sourced
+  // from the auth store at connect time).
+  const [serverUrl, setServerUrl] = useState(displayUrl(settings.serverUrl));
   const [autoConnect, setAutoConnect] = useState(settings.autoConnect);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -87,7 +89,7 @@ export function LoginView() {
           : await api.login(base, username, password);
       // Bump this server to the top of the preset list so it shows up first next time
       touchServer(url, username.includes("@") ? undefined : undefined);
-      update({ serverUrl: url, autoConnect });
+      update({ serverUrl: displayUrl(url), autoConnect });
       setConnection("connecting");
       signaling.setReconnectInterval(settings.reconnectInterval);
       signaling.connect({

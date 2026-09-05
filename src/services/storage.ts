@@ -101,36 +101,62 @@ export function getServerPresets(): ServerPreset[] {
 // Bump a server URL to the top of the list. If `label` is provided, store it.
 export function touchServer(url: string, label?: string) {
   if (!url) return;
+  const clean = stripToken(url);
+  if (!clean) return;
   const now = Date.now();
   const existing = readServerPresets();
-  const filtered = existing.filter((p) => p.url !== url);
-  filtered.unshift({ url, label, lastUsedAt: now });
+  const filtered = existing.filter((p) => p.url !== clean);
+  filtered.unshift({ url: clean, label, lastUsedAt: now });
   writeServerPresets(filtered.slice(0, MAX_SERVER_PRESETS));
 }
 
 export function addServer(url: string, label?: string) {
   if (!url) return;
+  const clean = stripToken(url);
+  if (!clean) return;
   const existing = readServerPresets();
-  if (existing.some((p) => p.url === url)) {
-    touchServer(url, label);
+  if (existing.some((p) => p.url === clean)) {
+    touchServer(clean, label);
     return;
   }
   const now = Date.now();
-  existing.unshift({ url, label, lastUsedAt: now });
+  existing.unshift({ url: clean, label, lastUsedAt: now });
   writeServerPresets(existing.slice(0, MAX_SERVER_PRESETS));
 }
 
 export function removeServer(url: string) {
+  const clean = stripToken(url);
   const existing = readServerPresets();
-  writeServerPresets(existing.filter((p) => p.url !== url));
+  writeServerPresets(existing.filter((p) => p.url !== clean));
 }
 
 export function renameServer(url: string, label: string) {
+  const clean = stripToken(url);
   const existing = readServerPresets();
-  const i = existing.findIndex((p) => p.url === url);
+  const i = existing.findIndex((p) => p.url === clean);
   if (i < 0) return;
   existing[i] = { ...existing[i], label };
   writeServerPresets(existing);
+}
+
+// Strip ?token=… query string. The token is sourced from the auth store
+// at connect time, so storing it in the URL is redundant + leaks into logs.
+function stripToken(rawUrl: string): string | null {
+  if (!rawUrl) return null;
+  try {
+    const u = new URL(rawUrl);
+    u.searchParams.delete("token");
+    // Normalize: drop trailing "?" if nothing else
+    const s = u.toString();
+    return s.endsWith("?") ? s.slice(0, -1) : s;
+  } catch {
+    return rawUrl;
+  }
+}
+
+// Public helper: present a URL in its display form (no ?token=…)
+export function displayUrl(rawUrl: string): string {
+  return stripToken(rawUrl) ?? rawUrl;
 }
 
 export function getSettings(): Settings {

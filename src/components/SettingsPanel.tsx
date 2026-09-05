@@ -10,6 +10,7 @@ import {
   addServer,
   removeServer,
   touchServer,
+  displayUrl,
   type ServerPreset,
 } from "../services/storage";
 
@@ -46,8 +47,10 @@ export function SettingsPanel() {
   };
 
   const onSave = () => {
-    update(draft);
-    touchServer(draft.serverUrl);
+    const clean = displayUrl(draft.serverUrl);
+    update({ ...draft, serverUrl: clean });
+    setDraft({ ...draft, serverUrl: clean });
+    touchServer(clean);
     message.success("设置已保存");
     setPresets(getServerPresets());
 
