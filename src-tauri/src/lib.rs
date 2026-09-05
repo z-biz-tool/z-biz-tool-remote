@@ -1,6 +1,7 @@
 mod capture;
 mod commands;
 mod input;
+mod persistent_storage;
 
 pub fn run() {
     tauri::Builder::default()
@@ -16,6 +17,10 @@ pub fn run() {
             commands::simulate_input,
             commands::get_app_info,
             commands::send_system_notification,
+            persistent_storage::read_persistent_state,
+            persistent_storage::write_persistent_state,
+            persistent_storage::get_state_path,
+            persistent_storage::clear_persistent_state,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())

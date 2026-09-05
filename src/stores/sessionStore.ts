@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import type { ConnectionState, OnlineDevice, View } from "../types";
-import { getDeviceId } from "../services/storage";
 
 interface SessionStore {
   deviceId: string;
@@ -30,6 +29,7 @@ interface SessionStore {
   setLastError: (e: string | null) => void;
   setEncryptionKey: (k: string | null) => void;
   setUser: (u: { userId: string; username: string } | null) => void;
+  setDeviceId: (id: string) => void;
   setSession: (info: { sessionId: string; sessionToken?: string; role: "host" | "client"; targetDeviceId?: string }) => void;
   clearSession: () => void;
   setHosting: (v: boolean) => void;
@@ -38,7 +38,9 @@ interface SessionStore {
 }
 
 export const useSessionStore = create<SessionStore>((set) => ({
-  deviceId: getDeviceId(),
+  // deviceId is empty at module load and is filled in by App.tsx after
+  // hydration (so that the disk-loaded id wins over a fresh random one).
+  deviceId: "",
   view: { kind: "login" },
   connection: "offline",
   onlineDevices: [],
@@ -60,6 +62,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   setLastError: (lastError) => set({ lastError }),
   setEncryptionKey: (encryptionKey) => set({ encryptionKey }),
   setUser: (u) => set(u ? { userId: u.userId, username: u.username } : { userId: null, username: null }),
+  setDeviceId: (deviceId) => set({ deviceId }),
   setSession: ({ sessionId, sessionToken, role, targetDeviceId }) =>
     set({ sessionId, sessionToken: sessionToken ?? null, role, targetDeviceId: targetDeviceId ?? null }),
   clearSession: () =>

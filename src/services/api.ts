@@ -142,6 +142,39 @@ async function refreshAccessToken(base: string): Promise<AuthSession | null> {
   }
 }
 
+/**
+ * Public refresh: pass an explicit refreshToken (do not require getAuth() to
+ * be populated). Used by App.tsx during auto-restore, where the disk-loaded
+ * auth may be about to expire.
+ */
+export async function refresh(
+  base: string,
+  refreshToken: string
+): Promise<AuthSession | null> {
+  try {
+    const res = await rawFetch(base, "/api/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (res.status !== 200) {
+      setAuth(null);
+      return null;
+    }
+    const body = (await res.json()) as { accessToken: string; refreshToken: string; expiresAt: number };
+    const existing = getAuth();
+    const next: AuthSession = {
+      accessToken: body.accessToken,
+      refreshToken: body.refreshToken,
+      expiresAt: body.expiresAt,
+      user: existing?.user ?? { id: "", username: "", createdAt: 0 },
+    };
+    setAuth(next);
+    return next;
+  } catch {
+    return null;
+  }
+}
+
 // Authenticated request with one auto-refresh retry on 401.
 export async function authedFetch(
   base: string,

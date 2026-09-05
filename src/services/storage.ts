@@ -1,4 +1,14 @@
 // 简单的 localStorage 包装，带 JSON 解析
+//
+// 在 localStorage 之外，关键状态还会写穿到 ~/.z-biz-tool-remote/state.json
+// （见 services/persistentStorage.ts），确保 Tauri WebView 存储被清空后
+// 下次启动依然能恢复登录态。
+
+import {
+  loadPersistentState,
+  savePersistentState,
+  type PersistentState,
+} from "./persistentStorage";
 
 const KEY_DEVICE_ID = "zbt-remote:deviceId";
 const KEY_SETTINGS = "zbt-remote:settings";
@@ -7,6 +17,104 @@ const KEY_TRUSTED = "zbt-remote:trusted";
 const KEY_AUTH = "zbt-remote:auth";
 const KEY_SERVERS = "zbt-remote:servers";
 const MAX_SERVER_PRESETS = 10;
+
+let _persistReady = false;
+let _persistTimer: ReturnType<typeof setTimeout> | null = null;
+const PERSIST_DEBOUNCE_MS = 250;
+
+function schedulePersist() {
+  if (!_persistReady) return;
+  if (typeof window === "undefined") return;
+  if (_persistTimer) clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(() => {
+    _persistTimer = null;
+    void persistNowInner();
+  }, PERSIST_DEBOUNCE_MS);
+}
+
+async function persistNowInner() {
+  const state = snapshotState();
+  await savePersistentState(state);
+}
+
+function snapshotState(): PersistentState {
+  return {
+    version: 1,
+    auth: getAuth(),
+    deviceId: getDeviceId() || null,
+    serverUrl: getSettings().serverUrl || null,
+    serverPresets: readServerPresets(),
+    history: getHistory(),
+    trusted: getTrusted(),
+    settings: getSettings(),
+    updatedAt: Date.now(),
+  };
+}
+
+/**
+ * Hydrate localStorage from ~/.z-biz-tool-remote/state.json.
+ * Call this ONCE at app startup, before any other storage call.
+ *
+ * - If the disk has state: copy it into localStorage, return the loaded
+ *   auth (or null) so the caller can decide whether to auto-restore.
+ * - If the disk is empty: keep whatever is in localStorage (legacy data
+ *   from older builds). The caller MUST then call persistNow() to seed
+ *   the disk with the final state (after the deviceId is decided).
+ *
+ * Note: this function does NOT trigger an initial persist. The caller
+ * owns that responsibility, because it must finalize the deviceId
+ * before any disk write.
+ */
+export async function hydrateStorage(): Promise<{
+  auth: AuthSession | null;
+  deviceId: string | null;
+}> {
+  const disk = await loadPersistentState();
+  if (disk) {
+    if (disk.auth) localStorage.setItem(KEY_AUTH, JSON.stringify(disk.auth));
+    if (disk.deviceId) localStorage.setItem(KEY_DEVICE_ID, disk.deviceId);
+    if (disk.serverPresets && disk.serverPresets.length > 0) {
+      localStorage.setItem(KEY_SERVERS, JSON.stringify(disk.serverPresets));
+    }
+    if (disk.history && disk.history.length > 0) {
+      localStorage.setItem(KEY_HISTORY, JSON.stringify(disk.history));
+    }
+    if (disk.trusted && disk.trusted.length > 0) {
+      localStorage.setItem(KEY_TRUSTED, JSON.stringify(disk.trusted));
+    }
+    if (disk.settings) {
+      localStorage.setItem(KEY_SETTINGS, JSON.stringify(disk.settings));
+    }
+  }
+  // Mark ready so subsequent setters schedule disk writes. Do NOT call
+  // persistNowInner here — the caller needs to decide the deviceId first
+  // (otherwise we'd snapshot an empty deviceId and lose it on first write).
+  _persistReady = true;
+  return {
+    auth: disk?.auth ?? getAuth(),
+    deviceId: disk?.deviceId ?? null,
+  };
+}
+
+/** For tests / debug. */
+export function _resetStorageForTests() {
+  _persistReady = false;
+  if (_persistTimer) clearTimeout(_persistTimer);
+  _persistTimer = null;
+}
+
+/**
+ * Force a write to ~/.z-biz-tool-remote/state.json now (no debounce).
+ * Useful after synchronous multi-key changes (e.g. the server told us a
+ * new deviceId; we need it on disk before the next launch).
+ */
+export async function persistNow(): Promise<void> {
+  if (_persistTimer) {
+    clearTimeout(_persistTimer);
+    _persistTimer = null;
+  }
+  await persistNowInner();
+}
 
 export interface Settings {
   serverUrl: string;
@@ -39,6 +147,7 @@ export function getDeviceId(): string {
   if (!id) {
     id = "dev-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
     localStorage.setItem(KEY_DEVICE_ID, id);
+    schedulePersist();
   }
   return id;
 }
@@ -66,6 +175,7 @@ export function setAuth(s: AuthSession | null) {
   } else {
     localStorage.setItem(KEY_AUTH, JSON.stringify(s));
   }
+  schedulePersist();
 }
 
 // ---------- server URL presets ----------
@@ -108,6 +218,7 @@ export function touchServer(url: string, label?: string) {
   const filtered = existing.filter((p) => p.url !== clean);
   filtered.unshift({ url: clean, label, lastUsedAt: now });
   writeServerPresets(filtered.slice(0, MAX_SERVER_PRESETS));
+  schedulePersist();
 }
 
 export function addServer(url: string, label?: string) {
@@ -122,12 +233,14 @@ export function addServer(url: string, label?: string) {
   const now = Date.now();
   existing.unshift({ url: clean, label, lastUsedAt: now });
   writeServerPresets(existing.slice(0, MAX_SERVER_PRESETS));
+  schedulePersist();
 }
 
 export function removeServer(url: string) {
   const clean = stripToken(url);
   const existing = readServerPresets();
   writeServerPresets(existing.filter((p) => p.url !== clean));
+  schedulePersist();
 }
 
 export function renameServer(url: string, label: string) {
@@ -137,6 +250,7 @@ export function renameServer(url: string, label: string) {
   if (i < 0) return;
   existing[i] = { ...existing[i], label };
   writeServerPresets(existing);
+  schedulePersist();
 }
 
 // Strip ?token=… query string. The token is sourced from the auth store
@@ -173,6 +287,7 @@ export function saveSettings(patch: Partial<Settings>) {
   const current = getSettings();
   const merged = { ...current, ...patch };
   localStorage.setItem(KEY_SETTINGS, JSON.stringify(merged));
+  schedulePersist();
   return merged;
 }
 
@@ -198,10 +313,12 @@ export function addHistory(rec: HistoryRecord) {
   const list = getHistory();
   list.unshift(rec);
   localStorage.setItem(KEY_HISTORY, JSON.stringify(list.slice(0, 50)));
+  schedulePersist();
 }
 
 export function clearHistory() {
   localStorage.removeItem(KEY_HISTORY);
+  schedulePersist();
 }
 
 export function getTrusted(): string[] {
@@ -219,12 +336,14 @@ export function addTrusted(id: string) {
   if (!list.includes(id)) {
     list.push(id);
     localStorage.setItem(KEY_TRUSTED, JSON.stringify(list));
+    schedulePersist();
   }
 }
 
 export function removeTrusted(id: string) {
   const list = getTrusted().filter((x) => x !== id);
   localStorage.setItem(KEY_TRUSTED, JSON.stringify(list));
+  schedulePersist();
 }
 
 export function isTrusted(id: string): boolean {

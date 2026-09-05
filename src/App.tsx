@@ -1,5 +1,5 @@
-import { App as AntdApp, Modal, message } from "antd";
-import { useEffect } from "react";
+import { App as AntdApp, Modal, message, Spin } from "antd";
+import { useEffect, useRef, useState } from "react";
 import { ConnectionBar } from "./components/ConnectionBar";
 import { LoginView } from "./components/LoginView";
 import { MainView } from "./components/MainView";
@@ -8,9 +8,21 @@ import { ControlView } from "./components/ControlView";
 import { useSessionStore } from "./stores/sessionStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { signaling } from "./services/signaling";
-import { addHistory, addTrusted, isTrusted } from "./services/storage";
+import {
+  addHistory,
+  addTrusted,
+  getAuth,
+  getDeviceId,
+  hydrateStorage,
+  isTrusted,
+  persistNow,
+  setAuth,
+} from "./services/storage";
+import * as api from "./services/api";
 import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
+
+const REFRESH_SKEW_MS = 30_000; // refresh 30s before actual expiry to avoid races
 
 export default function App() {
   const {
@@ -24,10 +36,97 @@ export default function App() {
     setLastError,
     setUser,
   } = useSessionStore();
+  const [hydrated, setHydrated] = useState(false);
+  const autoRestoreTried = useRef(false);
 
   useEffect(() => {
-    // Auto-connect is handled by LoginView (it owns the auth token).
-    // Here we only wire up signaling event listeners.
+    // 1) Hydrate from ~/.z-biz-tool-remote/state.json BEFORE showing
+    //    any view, so LoginView's auto-connect effect sees the restored auth.
+    let cancelled = false;
+    (async () => {
+      try {
+        const { deviceId: diskId } = await hydrateStorage();
+        // If the disk has a deviceId, use it. Otherwise generate one and
+        // let getDeviceId() persist it via schedulePersist (called inside
+        // the function). getDeviceId() reads localStorage first, so if
+        // the disk was empty, the new id flows to disk on next persist.
+        let id = diskId;
+        if (!id) {
+          id = getDeviceId();
+        } else {
+          // Make sure localStorage is in sync (in case it was wiped between
+          // launches by the WebView).
+          try {
+            localStorage.setItem("zbt-remote:deviceId", id);
+          } catch {
+            // ignore
+          }
+        }
+        if (!cancelled) useSessionStore.getState().setDeviceId(id);
+        // First persist: seeds the disk with the post-hydration state
+        // (including the deviceId we just decided). This must happen
+        // AFTER setDeviceId, otherwise the disk would snapshot an empty
+        // deviceId.
+        void persistNow();
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 2) Once hydration is done, if we have an auth token + saved server,
+  //    try to auto-restore the connection.
+  useEffect(() => {
+    if (!hydrated || autoRestoreTried.current) return;
+    autoRestoreTried.current = true;
+    const auth = getAuth();
+    if (!auth) return;
+    const settings = useSettingsStore.getState().settings;
+    if (!settings.autoConnect) return;
+    if (!auth.refreshToken) return;
+
+    // The access token may be expired. If so, refresh first so the WS
+    // upgrade (which sends the access token) doesn't 401.
+    const needsRefresh = !auth.accessToken || auth.expiresAt - REFRESH_SKEW_MS <= Date.now();
+    const base = api.serverUrlToHttpBase(settings.serverUrl);
+
+    const proceed = (accessToken: string) => {
+      setConnection("connecting");
+      signaling.setReconnectInterval(settings.reconnectInterval);
+      signaling.connect({
+        url: settings.serverUrl,
+        deviceId,
+        deviceName: deviceNameHint() || undefined,
+        token: accessToken,
+      });
+    };
+
+    if (needsRefresh) {
+      api
+        .refresh(base, auth.refreshToken)
+        .then((next) => {
+          if (next) proceed(next.accessToken);
+          else {
+            setAuth(null);
+            setConnection("offline");
+            message.warning("登录已过期,请重新登录");
+          }
+        })
+        .catch(() => {
+          setConnection("offline");
+        });
+    } else {
+      proceed(auth.accessToken);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
+
+  useEffect(() => {
+    // Auto-connect is handled by App.tsx (see auto-restore above) after
+    // hydration. Here we only wire up signaling event listeners.
 
     const offOpen = signaling.on("open", () => {
       setConnection("online");
@@ -45,12 +144,15 @@ export default function App() {
       switch (msg.type) {
         case "REGISTER_SUCCESS": {
           if (msg.deviceId) {
-            useSessionStore.setState({ deviceId: msg.deviceId });
+            useSessionStore.getState().setDeviceId(msg.deviceId);
             try {
               localStorage.setItem("zbt-remote:deviceId", msg.deviceId);
             } catch {
               // ignore
             }
+            // Persist to ~/.z-biz-tool-remote/state.json so the deviceId
+            // survives a Tauri WebView storage wipe.
+            void persistNow();
           }
           setEncryptionKey(msg.encryptionKey ?? null);
           if (msg.userId && msg.username) {
@@ -193,11 +295,16 @@ export default function App() {
   }, []);
 
   let content: React.ReactNode;
-  // Use view.kind, NOT connection state, to decide which view to render.
-  // Otherwise every WS disconnect (e.g. during 401 retry loop) would unmount
-  // <LoginView/> and reset its useState(serverUrl) back to the stored URL,
-  // clobbering whatever the user had just typed.
-  if (view.kind === "login") {
+  // While hydration is in flight, show a spinner so we never render the
+  // login form with stale localStorage and immediately re-render it after
+  // disk has been written.
+  if (!hydrated) {
+    content = (
+      <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Spin tip="加载中..." />
+      </div>
+    );
+  } else if (view.kind === "login") {
     content = <LoginView />;
   } else if (view.kind === "hosting") {
     content = <HostingView />;
@@ -215,4 +322,12 @@ export default function App() {
       </div>
     </AntdApp>
   );
+}
+
+function deviceNameHint(): string {
+  if (typeof navigator === "undefined") return "";
+  const nav = navigator as Navigator & {
+    userAgentData?: { platform?: string };
+  };
+  return nav.userAgentData?.platform || nav.platform || "";
 }
