@@ -124,10 +124,34 @@ wss.on("connection", (ws) => {
         if (!deviceId) return;
         const targetId = msg.targetId || msg.fromId;
         const targetWs = clients.get(targetId);
-        if (targetWs) {
-          send(targetWs, { type: "CONTROL_ACCEPTED", targetId: deviceId });
+        if (!targetWs) {
+          send(ws, { type: "CONTROL_FAILED", message: "目标设备已离线" });
+          return;
         }
-        console.log(`[control-accept] ${deviceId} -> ${targetId}`);
+        // 创建一个新会话用于此次远程控制
+        const ctrlSessionId = msg.sessionId || ("auto-" + randomBytes(4).toString("hex"));
+        const ctrlSessionToken = randomBytes(6).toString("hex");
+        const ctrlSess = getOrCreateSession(ctrlSessionId);
+        ctrlSess.hostId = deviceId; // 接受方是 host
+        ctrlSess.sessionToken = ctrlSessionToken;
+        ctrlSess.clients.add(deviceId); // host 加入
+        // 通知客户端（请求方）可以加入会话，返回会话凭证
+        send(targetWs, {
+          type: "CONTROL_ACCEPTED",
+          targetId: deviceId,
+          sessionId: ctrlSessionId,
+          sessionToken: ctrlSessionToken,
+          role: "client",
+        });
+        // 通知主机端（接受方）会话已创建，开始广播
+        send(ws, {
+          type: "SESSION_CREATED",
+          sessionId: ctrlSessionId,
+          sessionToken: ctrlSessionToken,
+          deviceId,
+          role: "host",
+        });
+        console.log(`[control-accept] ${deviceId} -> ${targetId} session=${ctrlSessionId}`);
         break;
       }
       case "CONTROL_REJECT": {

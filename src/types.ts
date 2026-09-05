@@ -99,6 +99,7 @@ export type SignalMessage =
       devices: Array<{ id: string; name?: string; online: boolean }>;
     }
   | { type: "PONG" }
+  | { type: "PING" }
   // 文件传输
   | {
       type: "FILE_TRANSFER_REQUEST";

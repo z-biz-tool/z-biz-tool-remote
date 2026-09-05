@@ -90,6 +90,11 @@ export class SignalingClient extends Emitter {
       this.emit("message", data);
       this.emit("raw", data);
 
+      // Respond to server heartbeat PING with PONG
+      if (data.type === "PING") {
+        this.send({ type: "PONG" });
+      }
+
       if (data.type === "SCREEN_FRAME") {
         this.emit("screen-frame", { frame: data.frame, fromId: data.fromId ?? "" });
       }
