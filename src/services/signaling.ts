@@ -176,12 +176,12 @@ export class SignalingClient extends Emitter {
     this.send({ type: "JOIN_SESSION", sessionId, sessionToken });
   }
 
-  requestControl(targetId: string, sessionId: string) {
-    this.send({ type: "CONTROL_REQUEST", targetId, sessionId });
+  requestControl(targetId: string, sessionId: string, ephemeral = false) {
+    this.send({ type: "CONTROL_REQUEST", targetId, sessionId, ephemeral });
   }
 
-  acceptControl(fromId: string, sessionId: string) {
-    this.send({ type: "CONTROL_ACCEPT", fromId, sessionId });
+  acceptControl(fromId: string, sessionId: string, ephemeral = false) {
+    this.send({ type: "CONTROL_ACCEPT", fromId, sessionId, ephemeral });
   }
 
   rejectControl(fromId: string, sessionId: string, message?: string) {

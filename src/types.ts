@@ -40,12 +40,14 @@ export type SignalMessage =
       fromId?: string;
       targetId?: string;
       sessionId?: string;
+      ephemeral?: boolean;
     }
   | {
       type: "CONTROL_ACCEPT";
       fromId?: string;
       targetId?: string;
       sessionId: string;
+      ephemeral?: boolean;
     }
   | {
       type: "CONTROL_REJECT";
@@ -54,9 +56,25 @@ export type SignalMessage =
       sessionId?: string;
       message?: string;
     }
-  | { type: "CONTROL_ACCEPTED"; targetId: string }
+  | {
+      type: "CONTROL_ACCEPTED";
+      targetId: string;
+      // For ephemeral (one-click) control, the server creates a real
+      // session on accept and returns its credentials + role here.
+      sessionId?: string;
+      sessionToken?: string;
+      role?: "host" | "client";
+    }
   | { type: "CONTROL_REJECTED"; message: string }
   | { type: "CONTROL_FAILED"; message: string }
+  | {
+      type: "SESSION_CREATED";
+      sessionId: string;
+      sessionToken: string;
+      deviceId?: string;
+      // For ephemeral "control my device" accept, role="host" (the accepter).
+      role?: "host" | "client";
+    }
   | {
       type: "SCREEN_FRAME";
       sessionId?: string;

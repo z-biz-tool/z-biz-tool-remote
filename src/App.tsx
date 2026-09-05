@@ -1,4 +1,4 @@
-import { App as AntdApp, Modal, message, Spin } from "antd";
+import { App as AntdApp, ConfigProvider, Modal, message, Spin, theme } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { ConnectionBar } from "./components/ConnectionBar";
 import { LoginView } from "./components/LoginView";
@@ -166,6 +166,9 @@ export default function App() {
           break;
         }
         case "SESSION_CREATED": {
+          // For an explicit CREATE_SESSION: role=host, this device is hosting.
+          // For an ephemeral "control my device" accept: role=host too, this
+          // device accepted and now is the host of the new session.
           setSession({
             sessionId: msg.sessionId,
             sessionToken: msg.sessionToken,
@@ -177,6 +180,7 @@ export default function App() {
             role: "host",
             at: Date.now(),
           });
+          useSessionStore.getState().setHosting(true);
           setView({ kind: "hosting", sessionId: msg.sessionId, sessionToken: msg.sessionToken });
           message.success(t("toast.hosting", { id: msg.sessionId }));
           break;
@@ -202,6 +206,34 @@ export default function App() {
           break;
         }
         case "CONTROL_ACCEPTED": {
+          // For ephemeral one-click control, the server returns real
+          // sessionId/sessionToken/role so the requester can join the
+          // session it just created.
+          if (msg.sessionId && msg.sessionToken && msg.role === "client") {
+            setSession({
+              sessionId: msg.sessionId,
+              role: "client",
+              targetDeviceId: msg.targetId,
+            });
+            addHistory({
+              sessionId: msg.sessionId,
+              role: "client",
+              targetDeviceId: msg.targetId,
+              at: Date.now(),
+            });
+            // Auto-join the session so the host starts broadcasting and we
+            // can start sending input.
+            signaling.joinSession(msg.sessionId, msg.sessionToken);
+            setControlling(true);
+            setView({
+              kind: "controlling",
+              sessionId: msg.sessionId,
+              targetId: msg.targetId,
+            });
+            message.success(t("toast.controlling", { id: msg.targetId }));
+            break;
+          }
+          // Legacy explicit-session flow
           setSession({
             sessionId: useSessionStore.getState().sessionId ?? "",
             role: "client",
@@ -224,14 +256,18 @@ export default function App() {
           const fromId = (msg as { fromId?: string }).fromId;
           if (!fromId) break;
           const sessId = (msg as { sessionId?: string }).sessionId ?? "";
+          const isEphemeral =
+            (msg as { ephemeral?: boolean }).ephemeral === true ||
+            sessId.startsWith("auto-") ||
+            sessId === "";
           if (isTrusted(fromId)) {
-            signaling.acceptControl(fromId, sessId);
+            signaling.acceptControl(fromId, sessId, isEphemeral);
             useSessionStore.getState().setHosting(true);
             addTrusted(fromId);
             break;
           }
           if (!useSettingsStore.getState().settings.requirePermission) {
-            signaling.acceptControl(fromId, sessId);
+            signaling.acceptControl(fromId, sessId, isEphemeral);
             useSessionStore.getState().setHosting(true);
             break;
           }
@@ -240,7 +276,7 @@ export default function App() {
             okText: t("dialog.accept"),
             cancelText: t("dialog.reject"),
             onOk: () => {
-              signaling.acceptControl(fromId, sessId);
+              signaling.acceptControl(fromId, sessId, isEphemeral);
               useSessionStore.getState().setHosting(true);
             },
             onCancel: () => {
@@ -316,12 +352,26 @@ export default function App() {
   }
 
   return (
-    <AntdApp>
-      <div className="app-shell">
-        <ConnectionBar />
-        <div className="app-content">{content}</div>
-      </div>
-    </AntdApp>
+    <ConfigProvider
+      theme={{
+        algorithm: theme.darkAlgorithm,
+        token: {
+          colorPrimary: "#1677ff",
+          colorBgBase: "#1a1a1a",
+          colorBgContainer: "#232323",
+          colorBgElevated: "#2a2a2a",
+          colorBorder: "#333333",
+          borderRadius: 6,
+        },
+      }}
+    >
+      <AntdApp>
+        <div className="app-shell">
+          <ConnectionBar />
+          <div className="app-content">{content}</div>
+        </div>
+      </AntdApp>
+    </ConfigProvider>
   );
 }
 
