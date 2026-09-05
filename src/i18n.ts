@@ -50,6 +50,7 @@ const zh: Dict = {
   "dialog.accept": "允许",
   "dialog.reject": "拒绝",
   "toast.connected": "已连接到信令服务器",
+  "toast.connectFailed": "连接失败:服务端拒绝(检查 token/URL)",
   "toast.disconnected": "已断开",
   "toast.connectedAs": "本机 ID: {id}",
   "toast.hosting": "已创建会话: {id}",

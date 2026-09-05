@@ -16,12 +16,12 @@ export default function App() {
   const {
     deviceId,
     view,
-    connection,
     setView,
     setConnection,
     setEncryptionKey,
     setSession,
     setControlling,
+    setLastError,
   } = useSessionStore();
   const { settings } = useSettingsStore();
 
@@ -40,7 +40,9 @@ export default function App() {
       setConnection("offline");
     });
     const offError = signaling.on("error", (e) => {
+      const msg = e instanceof Event ? `type=${e.type}` : String(e);
       console.error("ws error", e);
+      setLastError(msg);
     });
 
     const offMessage = signaling.on("message", (msg) => {
@@ -192,7 +194,11 @@ export default function App() {
   }, []);
 
   let content: React.ReactNode;
-  if (connection !== "online") {
+  // Use view.kind, NOT connection state, to decide which view to render.
+  // Otherwise every WS disconnect (e.g. during 401 retry loop) would unmount
+  // <LoginView/> and reset its useState(serverUrl) back to the stored URL,
+  // clobbering whatever the user had just typed.
+  if (view.kind === "login") {
     content = <LoginView />;
   } else if (view.kind === "hosting") {
     content = <HostingView />;

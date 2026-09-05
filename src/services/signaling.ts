@@ -52,7 +52,6 @@ export class SignalingClient extends Emitter {
 
   private openSocket() {
     if (!this.url || !this.deviceId) return;
-    this.emit("open", undefined);
     let ws: WebSocket;
     try {
       ws = new WebSocket(this.url);

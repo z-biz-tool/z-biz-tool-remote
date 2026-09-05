@@ -8,6 +8,7 @@ interface SessionStore {
   connection: ConnectionState;
   onlineDevices: OnlineDevice[];
   encryptionKey: string | null;
+  lastError: string | null;
 
   // 当前会话上下文
   sessionId: string | null;
@@ -23,6 +24,7 @@ interface SessionStore {
   setView: (v: View) => void;
   setConnection: (s: ConnectionState) => void;
   setOnlineDevices: (d: OnlineDevice[]) => void;
+  setLastError: (e: string | null) => void;
   setEncryptionKey: (k: string | null) => void;
   setSession: (info: { sessionId: string; sessionToken?: string; role: "host" | "client"; targetDeviceId?: string }) => void;
   clearSession: () => void;
@@ -36,6 +38,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   view: { kind: "login" },
   connection: "offline",
   onlineDevices: [],
+  lastError: null,
   encryptionKey: null,
   sessionId: null,
   sessionToken: null,
@@ -48,6 +51,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   setView: (view) => set({ view }),
   setConnection: (connection) => set({ connection }),
   setOnlineDevices: (onlineDevices) => set({ onlineDevices }),
+  setLastError: (lastError) => set({ lastError }),
   setEncryptionKey: (encryptionKey) => set({ encryptionKey }),
   setSession: ({ sessionId, sessionToken, role, targetDeviceId }) =>
     set({ sessionId, sessionToken: sessionToken ?? null, role, targetDeviceId: targetDeviceId ?? null }),
