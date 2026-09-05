@@ -74,7 +74,12 @@ export async function hydrateStorage(): Promise<{
     if (disk.auth) localStorage.setItem(KEY_AUTH, JSON.stringify(disk.auth));
     if (disk.deviceId) localStorage.setItem(KEY_DEVICE_ID, disk.deviceId);
     if (disk.serverPresets && disk.serverPresets.length > 0) {
-      localStorage.setItem(KEY_SERVERS, JSON.stringify(disk.serverPresets));
+      // Migrate legacy entries that were stored with a ws:// prefix.
+      const cleaned = disk.serverPresets.map((p) => ({
+        ...p,
+        url: displayUrl(p.url),
+      })) as ServerPreset[];
+      localStorage.setItem(KEY_SERVERS, JSON.stringify(cleaned));
     }
     if (disk.history && disk.history.length > 0) {
       localStorage.setItem(KEY_HISTORY, JSON.stringify(disk.history));
@@ -83,7 +88,13 @@ export async function hydrateStorage(): Promise<{
       localStorage.setItem(KEY_TRUSTED, JSON.stringify(disk.trusted));
     }
     if (disk.settings) {
-      localStorage.setItem(KEY_SETTINGS, JSON.stringify(disk.settings));
+      // Strip the ws:// prefix from legacy serverUrl values so the UI
+      // shows bare host:port from now on.
+      const s = disk.settings;
+      if (s.serverUrl) {
+        s.serverUrl = displayUrl(s.serverUrl);
+      }
+      localStorage.setItem(KEY_SETTINGS, JSON.stringify(s));
     }
   }
   // Mark ready so subsequent setters schedule disk writes. Do NOT call
@@ -130,7 +141,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  serverUrl: "ws://101.37.80.51:8080",
+  serverUrl: "101.37.80.51:8080",
   frameQuality: 80,
   fps: 15,
   language: "zh-CN",
@@ -253,6 +264,14 @@ export function renameServer(url: string, label: string) {
   schedulePersist();
 }
 
+// Strip the ws:// or wss:// protocol prefix. Users see a bare `host:port`
+// because this is our private signaling protocol — the underlying transport
+// is an internal detail, not something to expose.
+function stripProtocol(rawUrl: string): string {
+  if (!rawUrl) return "";
+  return rawUrl.replace(/^wss?:\/\//i, "").replace(/\/+$/, "");
+}
+
 // Strip ?token=… query string. The token is sourced from the auth store
 // at connect time, so storing it in the URL is redundant + leaks into logs.
 function stripToken(rawUrl: string): string | null {
@@ -268,9 +287,23 @@ function stripToken(rawUrl: string): string | null {
   }
 }
 
-// Public helper: present a URL in its display form (no ?token=…)
+// Public helper: present a URL in its display form
+// (no ws:// / wss://, no ?token=…). Just `host[:port]`.
 export function displayUrl(rawUrl: string): string {
-  return stripToken(rawUrl) ?? rawUrl;
+  if (!rawUrl) return "";
+  const noToken = stripToken(rawUrl) ?? rawUrl;
+  return stripProtocol(noToken);
+}
+
+/**
+ * Build a `ws://…` URL from a stored `host:port` for the WebSocket client.
+ * Always plain ws:// (LAN / self-hosted); for TLS, put a reverse proxy
+ * (nginx/caddy) in front of the signaling server.
+ */
+export function toWsUrl(hostPort: string): string {
+  const clean = stripProtocol(hostPort).trim();
+  if (!clean) return "";
+  return clean.startsWith("ws") ? hostPort : `ws://${clean}`;
 }
 
 export function getSettings(): Settings {

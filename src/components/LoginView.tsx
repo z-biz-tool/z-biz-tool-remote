@@ -4,15 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { signaling } from "../services/signaling";
-import { getAuth, getServerPresets, touchServer, displayUrl, type ServerPreset } from "../services/storage";
+import { getAuth, getServerPresets, touchServer, displayUrl, toWsUrl, type ServerPreset } from "../services/storage";
 import * as api from "../services/api";
 import { t } from "../i18n";
 
 export function LoginView() {
   const { connection, deviceId, setConnection, lastError } = useSessionStore();
   const { settings, update } = useSettingsStore();
-  // Always show the URL without any ?token=… (the token is sourced
-  // from the auth store at connect time).
+  // Always show the URL as bare `host:port` (this is our private protocol,
+  // the ws:// prefix is an internal transport detail).
   const [serverUrl, setServerUrl] = useState(displayUrl(settings.serverUrl));
   const [autoConnect, setAutoConnect] = useState(settings.autoConnect);
   const [username, setUsername] = useState("");
@@ -48,7 +48,7 @@ export function LoginView() {
       setConnection("connecting");
       signaling.setReconnectInterval(settings.reconnectInterval);
       signaling.connect({
-        url: settings.serverUrl,
+        url: toWsUrl(settings.serverUrl),
         deviceId,
         deviceName: deviceName || undefined,
         token: auth.accessToken,
@@ -67,14 +67,19 @@ export function LoginView() {
   );
 
   async function doAuth() {
-    const url = serverUrl.trim();
-    if (!url) {
+    const raw = serverUrl.trim();
+    if (!raw) {
       message.error("请填写服务器地址");
       return;
     }
-    // Must be ws:// or wss://. Just the host[:port], no path / token.
-    if (!/^wss?:\/\/[^\s/?#]+(?::\d+)?\/?$/.test(url)) {
-      message.error("服务器地址格式: ws://host:port 或 wss://host:port(或域名,如 wss://signaling.example.com)");
+    // Strip any accidentally-typed ws:// or wss://, then validate the
+    // bare host[:port] format. Examples we accept:
+    //   101.37.80.51:8080
+    //   signaling.example.com
+    //   ws://101.37.80.51:8080  (tolerated, stripped)
+    const stripped = raw.replace(/^wss?:\/\//i, "").replace(/\/+$/, "");
+    if (!/^[a-zA-Z0-9._-]+(:\d{1,5})?$/.test(stripped)) {
+      message.error("地址格式: 101.37.80.51:8080 或 signaling.example.com");
       return;
     }
     if (!/^[a-zA-Z0-9_\-]{3,32}$/.test(username)) {
@@ -87,18 +92,18 @@ export function LoginView() {
     }
     setBusy(true);
     try {
-      const base = api.serverUrlToHttpBase(url);
+      const base = api.serverUrlToHttpBase(toWsUrl(stripped));
       const sess =
         mode === "register"
           ? await api.register(base, username, password)
           : await api.login(base, username, password);
       // Bump this server to the top of the preset list so it shows up first next time
-      touchServer(url, username.includes("@") ? undefined : undefined);
-      update({ serverUrl: displayUrl(url), autoConnect });
+      touchServer(stripped, username.includes("@") ? undefined : undefined);
+      update({ serverUrl: stripped, autoConnect });
       setConnection("connecting");
       signaling.setReconnectInterval(settings.reconnectInterval);
       signaling.connect({
-        url,
+        url: toWsUrl(stripped),
         deviceId,
         deviceName: deviceName || sess.user.username,
         token: sess.accessToken,
@@ -130,13 +135,13 @@ export function LoginView() {
     <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <Card style={{ width: 480 }} title={<Space><ApiOutlined /><span>{t("login.title")}</span></Space>}>
         <Form layout="vertical" onSubmitCapture={onSubmit}>
-          <Form.Item label={t("login.server")} extra="下拉选择历史服务器,或直接输入新地址 (ws://host:port 或 wss://domain)">
+          <Form.Item label={t("login.server")} extra="下拉选择历史服务器,或直接输入新地址 (如 101.37.80.51:8080 或 signaling.example.com)">
             <AutoComplete
               value={serverUrl}
               onChange={(v) => setServerUrl(v)}
               options={autoCompleteOptions}
               disabled={connection === "online"}
-              placeholder="ws://101.37.80.51:8080"
+              placeholder="101.37.80.51:8080"
               filterOption={(input, opt) =>
                 (opt?.value as string).toLowerCase().includes(input.toLowerCase()) ||
                 (opt?.label as string || "").toLowerCase().includes(input.toLowerCase())

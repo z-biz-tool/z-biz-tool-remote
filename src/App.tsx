@@ -17,6 +17,7 @@ import {
   isTrusted,
   persistNow,
   setAuth,
+  toWsUrl,
 } from "./services/storage";
 import * as api from "./services/api";
 import { t } from "./i18n";
@@ -91,13 +92,13 @@ export default function App() {
     // The access token may be expired. If so, refresh first so the WS
     // upgrade (which sends the access token) doesn't 401.
     const needsRefresh = !auth.accessToken || auth.expiresAt - REFRESH_SKEW_MS <= Date.now();
-    const base = api.serverUrlToHttpBase(settings.serverUrl);
+    const base = api.serverUrlToHttpBase(toWsUrl(settings.serverUrl));
 
     const proceed = (accessToken: string) => {
       setConnection("connecting");
       signaling.setReconnectInterval(settings.reconnectInterval);
       signaling.connect({
-        url: settings.serverUrl,
+        url: toWsUrl(settings.serverUrl),
         deviceId,
         deviceName: deviceNameHint() || undefined,
         token: accessToken,

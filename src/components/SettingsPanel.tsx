@@ -98,7 +98,7 @@ export function SettingsPanel() {
           <Input
             value={draft.serverUrl}
             onChange={(e) => setDraft({ ...draft, serverUrl: e.target.value })}
-            placeholder="ws://host:port"
+            placeholder="101.37.80.51:8080"
           />
         </Form.Item>
 
@@ -143,7 +143,7 @@ export function SettingsPanel() {
             <Input
               value={newServerUrl}
               onChange={(e) => setNewServerUrl(e.target.value)}
-              placeholder="ws://other-server:8080"
+              placeholder="signaling.other.com:8080"
               onPressEnter={onAddServer}
             />
             <Button type="primary" onClick={onAddServer}>
