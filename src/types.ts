@@ -1,8 +1,19 @@
 // ============ 信令协议消息（与 server.js / 原 Electron 客户端兼容） ============
 
 export type SignalMessage =
-  | { type: "REGISTER"; deviceId: string }
-  | { type: "REGISTER_SUCCESS"; deviceId: string; encryptionKey?: string }
+  | { type: "REGISTER"; deviceId: string; deviceName?: string }
+  | {
+      type: "REGISTER_SUCCESS";
+      deviceId: string;
+      encryptionKey?: string;
+      userId?: string;
+      username?: string;
+    }
+  | { type: "LIST_MY_DEVICES" }
+  | {
+      type: "MY_DEVICES";
+      devices: Array<{ id: string; name: string; lastSeen: number; online: boolean }>;
+    }
   | { type: "CREATE_SESSION" }
   | {
       type: "SESSION_CREATED";

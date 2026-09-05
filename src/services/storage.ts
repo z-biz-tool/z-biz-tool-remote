@@ -4,6 +4,7 @@ const KEY_DEVICE_ID = "zbt-remote:deviceId";
 const KEY_SETTINGS = "zbt-remote:settings";
 const KEY_HISTORY = "zbt-remote:history";
 const KEY_TRUSTED = "zbt-remote:trusted";
+const KEY_AUTH = "zbt-remote:auth";
 
 export interface Settings {
   serverUrl: string;
@@ -38,6 +39,31 @@ export function getDeviceId(): string {
     localStorage.setItem(KEY_DEVICE_ID, id);
   }
   return id;
+}
+
+export interface AuthSession {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  user: { id: string; username: string; createdAt: number };
+}
+
+export function getAuth(): AuthSession | null {
+  const raw = localStorage.getItem(KEY_AUTH);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as AuthSession;
+  } catch {
+    return null;
+  }
+}
+
+export function setAuth(s: AuthSession | null) {
+  if (!s) {
+    localStorage.removeItem(KEY_AUTH);
+  } else {
+    localStorage.setItem(KEY_AUTH, JSON.stringify(s));
+  }
 }
 
 export function getSettings(): Settings {

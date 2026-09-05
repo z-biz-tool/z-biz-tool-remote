@@ -36,18 +36,27 @@ class Emitter {
 export class SignalingClient extends Emitter {
   private ws: WebSocket | null = null;
   private url: string | null = null;
+  private deviceName: string | null = null;
   private reconnectTimer: number | null = null;
   private intentionalClose = false;
   private reconnectInterval = 3000;
   private deviceId: string | null = null;
 
-  connect(url: string, deviceId: string) {
+  // opts: { url, deviceId, deviceName?, token? }
+  connect(opts: { url: string; deviceId: string; deviceName?: string; token?: string }) {
+    const url = buildWsUrl(opts.url, opts.token);
     if (this.ws && this.url === url) return;
     this.disconnect();
     this.url = url;
-    this.deviceId = deviceId;
+    this.deviceId = opts.deviceId;
+    this.deviceName = opts.deviceName || null;
     this.intentionalClose = false;
     this.openSocket();
+  }
+
+  // Backward-compat: positional (url, deviceId)
+  connectLegacy(url: string, deviceId: string) {
+    return this.connect({ url, deviceId });
   }
 
   private openSocket() {
@@ -63,7 +72,11 @@ export class SignalingClient extends Emitter {
     this.ws = ws;
 
     ws.onopen = () => {
-      this.send({ type: "REGISTER", deviceId: this.deviceId! });
+      this.send({
+        type: "REGISTER",
+        deviceId: this.deviceId!,
+        deviceName: this.deviceName || undefined,
+      });
       this.emit("open", undefined);
     };
 
@@ -76,7 +89,7 @@ export class SignalingClient extends Emitter {
       }
       this.emit("message", data);
       this.emit("raw", data);
-      
+
       if (data.type === "SCREEN_FRAME") {
         this.emit("screen-frame", { frame: data.frame, fromId: data.fromId ?? "" });
       }
@@ -217,6 +230,27 @@ export class SignalingClient extends Emitter {
 
   getOnlineDevices() {
     this.send({ type: "GET_ONLINE_DEVICES" });
+  }
+
+  listMyDevices() {
+    this.send({ type: "LIST_MY_DEVICES" });
+  }
+}
+
+// Build a ws URL with optional ?token=… query.
+// If a ?token= already exists in the URL we keep it (legacy).
+function buildWsUrl(rawUrl: string, token: string | undefined | null): string {
+  if (!token) return rawUrl;
+  // Don't double-append
+  try {
+    const u = new URL(rawUrl);
+    if (u.searchParams.has("token")) return rawUrl;
+    u.searchParams.set("token", token);
+    return u.toString();
+  } catch {
+    // Fallback: best-effort string append
+    if (rawUrl.includes("token=")) return rawUrl;
+    return rawUrl + (rawUrl.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);
   }
 }
 

@@ -22,16 +22,12 @@ export default function App() {
     setSession,
     setControlling,
     setLastError,
+    setUser,
   } = useSessionStore();
-  const { settings } = useSettingsStore();
 
   useEffect(() => {
-    // 自启动连接
-    if (settings.autoConnect) {
-      signaling.setReconnectInterval(settings.reconnectInterval);
-      signaling.connect(settings.serverUrl, deviceId);
-      setConnection("connecting");
-    }
+    // Auto-connect is handled by LoginView (it owns the auth token).
+    // Here we only wire up signaling event listeners.
 
     const offOpen = signaling.on("open", () => {
       setConnection("online");
@@ -57,6 +53,9 @@ export default function App() {
             }
           }
           setEncryptionKey(msg.encryptionKey ?? null);
+          if (msg.userId && msg.username) {
+            setUser({ userId: msg.userId, username: msg.username });
+          }
           setView({ kind: "main" });
           // 注册后自动请求一次在线列表
           signaling.getOnlineDevices();
