@@ -1,0 +1,38 @@
+# One-command deploy:  `docker compose up -d`
+#
+# Generate a strong token first:
+#   openssl rand -hex 32
+
+services:
+  signaling:
+    build: .
+    image: z-biz-tool-remote-server:latest
+    container_name: z-biz-signaling
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      LOG_LEVEL: "info"
+      # Set a real token in .env or via -e AUTH_TOKEN=$(openssl rand -hex 32)
+      AUTH_TOKEN: "${AUTH_TOKEN:?AUTH_TOKEN env var is required (run: openssl rand -hex 32)}"
+      # Optional: enable WSS by mounting certs
+      # TLS_KEY_PATH: "/certs/key.pem"
+      # TLS_CERT_PATH: "/certs/cert.pem"
+    volumes:
+      # Optional: persist session snapshots for debugging
+      - ./data:/app/data
+      # Optional: mount certs for WSS
+      # - ./certs:/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz | grep -q '\"ok\":true'"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,12 @@
+.git
+.github
+node_modules
+*.log
+.env
+.env.local
+data/
+sessions.json
+README.MD
+tests/
+.dockerignore
+.DS_Store

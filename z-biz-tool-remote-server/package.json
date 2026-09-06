@@ -1,11 +1,30 @@
 {
   "name": "z-biz-tool-remote-server",
   "version": "1.0.0",
+  "description": "Standalone WebSocket signaling server for z-biz-tool-remote clients. Quick-deploy relay that lets two machines discover each other and exchange screen frames / input events through one trusted hop.",
   "type": "module",
+  "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node tests/e2e.test.js && node tests/auth-e2e.test.js",
+    "test:e2e": "node tests/e2e.test.js",
+    "test:auth": "node tests/auth-e2e.test.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "ws": "^8.18.0"
-  }
+  },
+  "devDependencies": {},
+  "author": "z-biz",
+  "license": "MIT",
+  "keywords": [
+    "z-biz",
+    "remote-desktop",
+    "signaling",
+    "webrtc",
+    "teamviewer-alternative"
+  ]
 }
