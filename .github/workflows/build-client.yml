@@ -1,0 +1,80 @@
+name: Build Tauri Client (macOS dmg)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "z-biz-tool-remote-client/**"
+      - ".github/workflows/build-client.yml"
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "z-biz-tool-remote-client/**"
+
+jobs:
+  build-dmg:
+    name: Build & Upload dmg
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: z-biz-tool-remote-client/package-lock.json
+
+      - name: Install dependencies
+        working-directory: z-biz-tool-remote-client
+        run: npm ci
+
+      - name: Type check
+        working-directory: z-biz-tool-remote-client
+        run: npx tsc --noEmit
+
+      - name: Build Tauri dmg
+        working-directory: z-biz-tool-remote-client
+        run: npm run tauri:build:dmg
+
+      - name: Locate dmg artifact
+        id: locate
+        working-directory: z-biz-tool-remote-client
+        run: |
+          DMG=$(find src-tauri/target/release/bundle/dmg -maxdepth 2 -name "*.dmg" | head -n1)
+          if [ -z "$DMG" ]; then
+            echo "::error::dmg file not found"
+            exit 1
+          fi
+          echo "dmg_path=$DMG" >> $GITHUB_OUTPUT
+          echo "dmg_name=$(basename "$DMG")" >> $GITHUB_OUTPUT
+
+      - name: Upload dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: z-biz-tool-remote-dmg
+          path: ${{ steps.locate.outputs.dmg_path }}
+          if-no-files-found: error
+
+  release:
+    name: Attach to GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-dmg
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download dmg artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: z-biz-tool-remote-dmg
+          path: dist/
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.dmg
+          fail_on_unmatched_files: true
