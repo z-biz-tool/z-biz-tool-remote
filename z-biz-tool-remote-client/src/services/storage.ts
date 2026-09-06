@@ -131,6 +131,11 @@ export interface Settings {
   serverUrl: string;
   frameQuality: number; // 10-100
   fps: number; // 1-30
+  /**
+   * 单帧最大宽度(像素)。超过此宽度会按等比例缩放,显著降低带宽/卡顿。
+   * 0 表示不缩放,直接输出显示器原生分辨率。
+   */
+  maxFrameWidth: number;
   language: "zh-CN" | "en-US";
   autoConnect: boolean;
   allowClipboardSync: boolean;
@@ -140,10 +145,17 @@ export interface Settings {
   reconnectInterval: number; // ms
 }
 
+/** 用户可选的"最大宽度"档位。0 = 原生(不缩放)。 */
+export const FRAME_WIDTH_OPTIONS = [640, 960, 1280, 1600, 1920, 0] as const;
+export type FrameWidthOption = (typeof FRAME_WIDTH_OPTIONS)[number];
+
 export const DEFAULT_SETTINGS: Settings = {
   serverUrl: "101.37.80.51:8080",
   frameQuality: 80,
   fps: 15,
+  // 2K/Retina 显示器原生分辨率单帧可达 200~500KB,经 WebSocket 传输后带宽吃紧。
+  // 默认降到 1280 宽,大多数场景下画质肉眼无差、帧大小通常 <60KB。
+  maxFrameWidth: 1280,
   language: "zh-CN",
   autoConnect: true,
   allowClipboardSync: true,

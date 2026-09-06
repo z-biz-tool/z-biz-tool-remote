@@ -127,7 +127,7 @@ async function main() {
   // Start server (no legacy AUTH_TOKEN)
   const env = { ...process.env, DATA_FILE: dataFile, PORT: String(port) };
   delete env.AUTH_TOKEN;
-  const child = spawn(process.execPath, ["src/server.js"], {
+  const child = spawn(process.execPath, ["server.js"], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });

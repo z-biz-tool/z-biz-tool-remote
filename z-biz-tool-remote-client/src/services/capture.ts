@@ -31,10 +31,12 @@ export function startCaptureLoop(displayId?: number) {
         frame = await invoke<ScreenFrame>("capture_monitor", {
           displayId: selectedDisplayId,
           quality: settings.frameQuality,
+          maxWidth: settings.maxFrameWidth,
         });
       } else {
         frame = await invoke<ScreenFrame>("capture_screen", {
           quality: settings.frameQuality,
+          maxWidth: settings.maxFrameWidth,
         });
       }
       // 节流：若上一帧还没发完，或短时间内已经有同 ts，跳过

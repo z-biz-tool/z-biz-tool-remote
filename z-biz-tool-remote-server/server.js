@@ -469,6 +469,20 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
       logger.info("control reject", { from: deviceId, to: targetId });
       break;
     }
+    case "CONTROL_ACCEPT": {
+      if (!deviceId) return;
+      const targetId = msg.targetId;
+      const targetWs = clients.get(targetId);
+      if (targetWs) {
+        send(targetWs, {
+          type: "CONTROL_ACCEPTED",
+          targetId: deviceId,
+          sessionId: msg.sessionId,
+        });
+      }
+      logger.info("control accept", { from: deviceId, to: targetId });
+      break;
+    }
     case "SCREEN_FRAME": {
       if (!deviceId) return;
       const sess = sessions.get(msg.sessionId);

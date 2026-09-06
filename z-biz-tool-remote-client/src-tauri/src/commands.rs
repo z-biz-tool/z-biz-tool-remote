@@ -12,9 +12,12 @@ pub struct ScreenFrame {
 }
 
 /// 截取主屏幕一帧并返回 JPEG/base64
+///
+/// `max_width` 为 0 时按原图输出；大于 0 时按等比例缩小后再编码，
+/// 显著降低单帧字节数，缓解高分辨率显示器下的卡顿。
 #[tauri::command]
-pub fn capture_screen(quality: u8) -> Result<ScreenFrame, String> {
-    let frame = capture::capture_to_jpeg(quality)?;
+pub fn capture_screen(quality: u8, max_width: u32) -> Result<ScreenFrame, String> {
+    let frame = capture::capture_to_jpeg(quality, max_width)?;
     Ok(ScreenFrame {
         base64: frame.base64,
         width: frame.width,
@@ -26,8 +29,8 @@ pub fn capture_screen(quality: u8) -> Result<ScreenFrame, String> {
 
 /// 截取指定显示器一帧并返回 JPEG/base64
 #[tauri::command]
-pub fn capture_monitor(display_id: u32, quality: u8) -> Result<ScreenFrame, String> {
-    let frame = capture::capture_monitor_to_jpeg(display_id, quality)?;
+pub fn capture_monitor(display_id: u32, quality: u8, max_width: u32) -> Result<ScreenFrame, String> {
+    let frame = capture::capture_monitor_to_jpeg(display_id, quality, max_width)?;
     Ok(ScreenFrame {
         base64: frame.base64,
         width: frame.width,

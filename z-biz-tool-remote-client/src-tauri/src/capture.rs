@@ -1,5 +1,6 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use image::imageops::FilterType;
 use serde::Serialize;
 use xcap::Monitor;
 use xcap::image::ExtendedColorType;
@@ -42,7 +43,46 @@ pub struct CapturedFrame {
     pub display_id: u32,
 }
 
-pub fn capture_to_jpeg(quality: u8) -> Result<CapturedFrame, String> {
+/// 按 max_width 等比例缩小,降低像素量与传输带宽。
+/// - max_width == 0 表示按原图输出(用户选"原生")。
+/// - 原图已经比 max_width 窄时不再放大。
+fn downscale_to_width(rgb: RgbaImage, max_width: u32) -> RgbaImage {
+    if max_width == 0 {
+        return rgb;
+    }
+    let (w, h) = rgb.dimensions();
+    if w <= max_width {
+        return rgb;
+    }
+    // 按比例换算新高度,向上取整避免出现 0
+    let scale = max_width as f64 / w as f64;
+    let new_w = max_width;
+    let new_h = ((h as f64) * scale).ceil() as u32;
+    image::imageops::resize(&rgb, new_w, new_h, FilterType::Triangle)
+}
+
+/// 编码一帧到 JPEG/base64。
+///
+/// `max_width` 在编码前对 RGB 数据做一次三角滤波缩放,显著降低像素量。
+fn encode_jpeg(rgb: RgbaImage, display_id: u32, quality: u8, max_width: u32) -> Result<CapturedFrame, String> {
+    let rgb = downscale_to_width(rgb, max_width);
+    let (w, h) = rgb.dimensions();
+    let mut buf: Vec<u8> = Vec::new();
+    let q = quality.clamp(10, 100);
+    let encoder = JpegEncoder::new_with_quality(&mut buf, q);
+    encoder
+        .write_image(rgb.as_raw(), w, h, ExtendedColorType::Rgb8)
+        .map_err(|e| format!("编码 JPEG 失败: {e}"))?;
+
+    Ok(CapturedFrame {
+        base64: BASE64.encode(&buf),
+        width: w,
+        height: h,
+        display_id,
+    })
+}
+
+pub fn capture_to_jpeg(quality: u8, max_width: u32) -> Result<CapturedFrame, String> {
     let monitors = Monitor::all().map_err(|e| format!("枚举显示器失败: {e}"))?;
     let primary = monitors
         .iter()
@@ -55,26 +95,11 @@ pub fn capture_to_jpeg(quality: u8) -> Result<CapturedFrame, String> {
         .capture_image()
         .map_err(|e| format!("截屏失败: {e}"))?;
 
-    // JPEG 编码器只吃 RGB8（无 alpha），把 RGBA 显式转一次
-    let rgb = xcap::image::DynamicImage::ImageRgba8(image).to_rgb8();
-    let (w, h) = rgb.dimensions();
-    let mut buf: Vec<u8> = Vec::new();
-    let q = quality.clamp(10, 100);
-    let encoder = JpegEncoder::new_with_quality(&mut buf, q);
-    encoder
-        .write_image(rgb.as_raw(), w, h, ExtendedColorType::Rgb8)
-        .map_err(|e| format!("编码 JPEG 失败: {e}"))?;
-
-    Ok(CapturedFrame {
-        base64: BASE64.encode(&buf),
-        width: w,
-        height: h,
-        display_id: primary.id().unwrap_or(0),
-    })
+    encode_jpeg(image, primary.id().unwrap_or(0), quality, max_width)
 }
 
 // 新增：支持选择特定显示器截屏
-pub fn capture_monitor_to_jpeg(display_id: u32, quality: u8) -> Result<CapturedFrame, String> {
+pub fn capture_monitor_to_jpeg(display_id: u32, quality: u8, max_width: u32) -> Result<CapturedFrame, String> {
     let monitors = Monitor::all().map_err(|e| format!("枚举显示器失败: {e}"))?;
     let monitor = monitors
         .iter()
@@ -86,20 +111,5 @@ pub fn capture_monitor_to_jpeg(display_id: u32, quality: u8) -> Result<CapturedF
         .capture_image()
         .map_err(|e| format!("截屏失败: {e}"))?;
 
-    // JPEG 编码器只吃 RGB8（无 alpha），把 RGBA 显式转一次
-    let rgb = xcap::image::DynamicImage::ImageRgba8(image).to_rgb8();
-    let (w, h) = rgb.dimensions();
-    let mut buf: Vec<u8> = Vec::new();
-    let q = quality.clamp(10, 100);
-    let encoder = JpegEncoder::new_with_quality(&mut buf, q);
-    encoder
-        .write_image(rgb.as_raw(), w, h, ExtendedColorType::Rgb8)
-        .map_err(|e| format!("编码 JPEG 失败: {e}"))?;
-
-    Ok(CapturedFrame {
-        base64: BASE64.encode(&buf),
-        width: w,
-        height: h,
-        display_id: monitor.id().unwrap_or(0),
-    })
+    encode_jpeg(image, monitor.id().unwrap_or(0), quality, max_width)
 }

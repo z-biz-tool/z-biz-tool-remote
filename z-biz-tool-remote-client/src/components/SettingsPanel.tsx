@@ -6,6 +6,7 @@ import { t } from "../i18n";
 import { useSessionStore } from "../stores/sessionStore";
 import { startCaptureLoop, setSelectedDisplayId } from "../services/capture";
 import {
+  FRAME_WIDTH_OPTIONS,
   getServerPresets,
   addServer,
   removeServer,
@@ -177,6 +178,23 @@ export function SettingsPanel() {
             value={draft.frameQuality}
             onChange={(v) => setDraft({ ...draft, frameQuality: v })}
           />
+        </Form.Item>
+        <Form.Item label={`最大宽度: ${draft.maxFrameWidth === 0 ? "原生" : draft.maxFrameWidth + "px"}`}>
+          <Select
+            value={draft.maxFrameWidth}
+            onChange={(v) => setDraft({ ...draft, maxFrameWidth: v })}
+            style={{ width: "100%" }}
+            options={FRAME_WIDTH_OPTIONS.map((w) => ({
+              value: w,
+              label:
+                w === 0
+                  ? "原生 (不缩放)"
+                  : `${w}px${w === 1280 ? " (推荐)" : ""}`,
+            }))}
+          />
+          <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+            超过此宽度会按等比例缩小,显著降低带宽/卡顿。2K/Retina 屏建议 1280。
+          </div>
         </Form.Item>
         <Form.Item label={`${t("settings.fps")}: ${draft.fps}`}>
           <Slider

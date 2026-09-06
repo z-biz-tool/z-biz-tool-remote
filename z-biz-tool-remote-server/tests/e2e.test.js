@@ -105,7 +105,7 @@ async function waitForServer(port, attempts = 30) {
 }
 
 function startServer(env) {
-  const child = spawn(process.execPath, ["src/server.js"], {
+  const child = spawn(process.execPath, ["server.js"], {
     env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
