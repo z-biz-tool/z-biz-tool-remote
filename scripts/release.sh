@@ -134,14 +134,16 @@ import re, sys
 path, new_ver = sys.argv[1], sys.argv[2]
 with open(path, 'r', encoding='utf-8') as f:
     content = f.read()
+# (regex, replacement, flags)
 patterns = [
-    (r'("version"\s*:\s*)"[^"]+"',  rf'\g<1>"{new_ver}"'),  # JSON
-    (r'(^|\n)(version\s*=\s*)"[^"]+"', rf'\g<2>"{new_ver}"'),  # TOML
+    (r'("version"\s*:\s*)"[^"]+"',  rf'\g<1>"{new_ver}"', 0),             # JSON
+    (r'^(version\s*=\s*)"[^"]+"',    rf'\g<1>"{new_ver}"', re.MULTILINE),  # TOML
 ]
-for pat, repl in patterns:
-    new, n = re.subn(pat, repl, content, count=1)
+for pat, repl, flags in patterns:
+    new, n = re.subn(pat, repl, content, count=1, flags=flags)
     if n:
-        content = new; break
+        content = new
+        break
 else:
     sys.exit(f"未在 {path} 中找到 version 字段")
 with open(path, 'w', encoding='utf-8') as f:
