@@ -1,21 +1,34 @@
-name: Build Tauri Client (macOS dmg)
+name: Build Tauri Client (multi-platform)
 
 on:
   push:
-    branches: [main]
-    paths:
-      - "z-biz-tool-remote-client/**"
-      - ".github/workflows/build-client.yml"
+    tags:
+      - 'v*'
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    paths:
-      - "z-biz-tool-remote-client/**"
+
+permissions:
+  contents: write
 
 jobs:
-  build-dmg:
-    name: Build & Upload dmg
-    runs-on: macos-14
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+            label: macOS-ARM
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+            label: macOS-Intel
+          - platform: ubuntu-22.04
+            args: ''
+            label: Linux
+          - platform: windows-latest
+            args: ''
+            label: Windows
+
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout
@@ -26,55 +39,75 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: z-biz-tool-remote-client/package-lock.json
+          cache-dependency-path: client/package-lock.json
 
       - name: Install dependencies
-        working-directory: z-biz-tool-remote-client
+        working-directory: client
         run: npm ci
 
       - name: Type check
-        working-directory: z-biz-tool-remote-client
+        working-directory: client
         run: npx tsc --noEmit
 
-      - name: Build Tauri dmg
-        working-directory: z-biz-tool-remote-client
-        run: npm run tauri:build:dmg
+      - name: Build Tauri (all targets)
+        working-directory: client
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx @tauri-apps/cli build ${{ matrix.args }} --bundles app,dmg,deb,appimage,msi,nsis
 
-      - name: Locate dmg artifact
+      - name: Locate artifacts
         id: locate
-        working-directory: z-biz-tool-remote-client
+        working-directory: client
         run: |
-          DMG=$(find src-tauri/target/release/bundle/dmg -maxdepth 2 -name "*.dmg" | head -n1)
-          if [ -z "$DMG" ]; then
-            echo "::error::dmg file not found"
-            exit 1
-          fi
-          echo "dmg_path=$DMG" >> $GITHUB_OUTPUT
-          echo "dmg_name=$(basename "$DMG")" >> $GITHUB_OUTPUT
+          set -e
+          ART_DIR=src-tauri/target/release/bundle
+          APP=$(find "$ART_DIR/macos" -maxdepth 1 -name "*.app" 2>/dev/null | head -n1 || true)
+          DMG=$(find "$ART_DIR/dmg" -maxdepth 2 -name "*.dmg" 2>/dev/null | head -n1 || true)
+          DEB=$(find "$ART_DIR/deb" -maxdepth 2 -name "*.deb" 2>/dev/null | head -n1 || true)
+          APPIMAGE=$(find "$ART_DIR/appimage" -maxdepth 2 -name "*.AppImage" 2>/dev/null | head -n1 || true)
+          MSI=$(find "$ART_DIR/msi" -maxdepth 2 -name "*.msi" 2>/dev/null | head -n1 || true)
+          NSIS=$(find "$ART_DIR/nsis" -maxdepth 2 -name "*.exe" 2>/dev/null | head -n1 || true)
+          echo "app=$APP" >> $GITHUB_OUTPUT
+          echo "dmg=$DMG" >> $GITHUB_OUTPUT
+          echo "deb=$DEB" >> $GITHUB_OUTPUT
+          echo "appimage=$APPIMAGE" >> $GITHUB_OUTPUT
+          echo "msi=$MSI" >> $GITHUB_OUTPUT
+          echo "nsis=$NSIS" >> $GITHUB_OUTPUT
 
-      - name: Upload dmg artifact
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: z-biz-tool-remote-dmg
-          path: ${{ steps.locate.outputs.dmg_path }}
-          if-no-files-found: error
+          name: release-${{ matrix.label }}
+          path: |
+            ${{ steps.locate.outputs.app }}
+            ${{ steps.locate.outputs.dmg }}
+            ${{ steps.locate.outputs.deb }}
+            ${{ steps.locate.outputs.appimage }}
+            ${{ steps.locate.outputs.msi }}
+            ${{ steps.locate.outputs.nsis }}
+          if-no-files-found: warn
 
   release:
     name: Attach to GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build-dmg
+    needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: Download dmg artifact
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          name: z-biz-tool-remote-dmg
           path: dist/
+
+      - name: Flatten artifact folders
+        run: |
+          for d in dist/*/; do
+            [ -d "$d" ] && find "$d" -type f -exec mv -n {} dist/ \;
+          done
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.dmg
-          fail_on_unmatched_files: true
+          files: dist/*
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+          draft: false
