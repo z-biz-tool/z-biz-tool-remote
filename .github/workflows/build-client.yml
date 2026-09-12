@@ -11,6 +11,9 @@ permissions:
 
 jobs:
   build:
+    defaults:
+      run:
+        working-directory: z-biz-tool-remote-client
     strategy:
       fail-fast: false
       matrix:
@@ -42,15 +45,12 @@ jobs:
           cache-dependency-path: z-biz-tool-remote-client/package-lock.json
 
       - name: Install dependencies
-        working-directory: z-biz-tool-remote-client
         run: npm ci
 
       - name: Type check
-        working-directory: z-biz-tool-remote-client
         run: npx tsc --noEmit
 
       - name: Setup Rust
-        working-directory: z-biz-tool-remote-client
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
@@ -58,19 +58,16 @@ jobs:
       # Workaround: GitHub's new token format (2026-08) corrupts the cargo config
       # that dtolnay/rust-toolchain writes, breaking later cargo invocations.
       - name: Reset broken cargo config
-        working-directory: z-biz-tool-remote-client
         shell: bash
         run: rm -f "$HOME/.cargo/config.toml" "$USERPROFILE/.cargo/config.toml"
 
       - name: Build Tauri (all targets)
-        working-directory: z-biz-tool-remote-client
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx @tauri-apps/cli build ${{ matrix.args }} --bundles app,dmg,deb,appimage,msi,nsis
 
       - name: Locate artifacts
         id: locate
-        working-directory: z-biz-tool-remote-client
         run: |
           set -e
           ART_DIR=src-tauri/target/release/bundle
