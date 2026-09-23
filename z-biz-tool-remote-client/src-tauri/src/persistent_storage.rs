@@ -13,6 +13,8 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
+// POSIX 文件模式只在 unix 上存在；Windows 走 profile 目录的默认 ACL。
+#[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -69,8 +71,10 @@ fn default_version() -> u32 {
 }
 
 fn state_dir() -> Result<PathBuf, String> {
-    let home = std::env::var("HOME")
-        .map_err(|_| "HOME environment variable not set".to_string())?;
+    // Windows 没有 HOME，用 USERPROFILE；两者都没有才报错。
+    let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    let home = std::env::var(var)
+        .map_err(|_| format!("{} environment variable not set", var))?;
     Ok(PathBuf::from(home).join(DIR_NAME))
 }
 
@@ -82,10 +86,13 @@ fn ensure_dir() -> Result<PathBuf, String> {
     let dir = state_dir()?;
     if !dir.exists() {
         fs::create_dir_all(&dir).map_err(|e| format!("mkdir {} failed: {}", dir.display(), e))?;
-        // Mode 0700 — owner only.
-        let perm = fs::Permissions::from_mode(0o700);
-        fs::set_permissions(&dir, perm)
-            .map_err(|e| format!("chmod 0700 {} failed: {}", dir.display(), e))?;
+        // Mode 0700 — owner only（Windows 无 POSIX 模式，保持目录默认 ACL）。
+        #[cfg(unix)]
+        {
+            let perm = fs::Permissions::from_mode(0o700);
+            fs::set_permissions(&dir, perm)
+                .map_err(|e| format!("chmod 0700 {} failed: {}", dir.display(), e))?;
+        }
     }
     Ok(dir)
 }
@@ -146,11 +153,12 @@ pub fn write_persistent_state(state: PersistentState) -> Result<(), String> {
         .map_err(|e| format!("serialize state failed: {}", e))?;
 
     {
-        let mut f = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .custom_flags(0o600)
+        let mut opts = fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        // 0600 — owner only；Windows 依赖 profile 目录 ACL，无需设位。
+        #[cfg(unix)]
+        opts.custom_flags(0o600);
+        let mut f = opts
             .open(&tmp)
             .map_err(|e| format!("open {} failed: {}", tmp.display(), e))?;
         f.write_all(json.as_bytes())
@@ -159,9 +167,12 @@ pub fn write_persistent_state(state: PersistentState) -> Result<(), String> {
             .map_err(|e| format!("fsync {} failed: {}", tmp.display(), e))?;
     }
     // Restrict the temp file too in case the rename is racy on some FS.
-    let perm = fs::Permissions::from_mode(0o600);
-    fs::set_permissions(&tmp, perm)
-        .map_err(|e| format!("chmod 0600 {} failed: {}", tmp.display(), e))?;
+    #[cfg(unix)]
+    {
+        let perm = fs::Permissions::from_mode(0o600);
+        fs::set_permissions(&tmp, perm)
+            .map_err(|e| format!("chmod 0600 {} failed: {}", tmp.display(), e))?;
+    }
 
     fs::rename(&tmp, &path)
         .map_err(|e| format!("rename {} -> {} failed: {}", tmp.display(), path.display(), e))?;
