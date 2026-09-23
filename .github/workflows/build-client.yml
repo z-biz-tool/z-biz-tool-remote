@@ -20,15 +20,19 @@ jobs:
         include:
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
+            bundles: 'app,dmg'
             label: macOS-ARM
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
+            bundles: 'app,dmg'
             label: macOS-Intel
           - platform: ubuntu-22.04
             args: ''
+            bundles: 'deb,appimage'
             label: Linux
           - platform: windows-latest
             args: ''
+            bundles: 'msi,nsis'
             label: Windows
 
     runs-on: ${{ matrix.platform }}
@@ -64,7 +68,9 @@ jobs:
       - name: Build Tauri (all targets)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx @tauri-apps/cli build ${{ matrix.args }} --bundles app,dmg,deb,appimage,msi,nsis
+        # bundle 类型是平台专属的：Linux 只认 deb/rpm/appimage，mac 只认 app/dmg，
+        # 一刀切会让 CLI 直接 invalid value 退出（v0.2.0 打包就是这样红的）
+        run: npx @tauri-apps/cli build ${{ matrix.args }} --bundles ${{ matrix.bundles }}
 
       - name: Locate artifacts
         id: locate
