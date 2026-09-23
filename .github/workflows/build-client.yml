@@ -65,12 +65,13 @@ jobs:
         shell: bash
         run: rm -f "$HOME/.cargo/config.toml" "$USERPROFILE/.cargo/config.toml"
 
-      # gdk-sys 等需要系统 GTK/WebKit 头文件；不装的话 Linux 腿在编译期就红
+      # gdk-sys 等需要系统 GTK/WebKit 头文件；屏幕捕获链路（libspa-sys）还需要
+      # pipewire；arboard/通知类 crate 常要 dbus。缺哪个 Linux 腿就在编译期红哪个
       - name: Install system deps (Linux)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libgtk-3-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libgtk-3-dev libpipewire-0.3-dev libdbus-1-dev
 
       - name: Build Tauri (all targets)
         env:
