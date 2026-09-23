@@ -13,7 +13,10 @@ RUN npm install --omit=dev --no-audit --no-fund
 FROM node:20-alpine AS runtime
 WORKDIR /app
 # Run as non-root
-RUN addgroup -S app && adduser -S app -G app
+# tini 必须自己装：node:*-alpine 里没有 /sbin/tini（tini 只在 Debian 系镜像里预置），
+# 而下面 ENTRYPOINT 就写着 /sbin/tini —— 镜像能建出来但一跑就报
+# "exec: /sbin/tini: stat /sbin/tini: no such file or directory"（CI 的 docker 腿实测）。
+RUN apk add --no-cache tini && addgroup -S app && adduser -S app -G app
 COPY --from=deps --chown=app:app /app/node_modules ./node_modules
 COPY --chown=app:app package.json ./
 # 代码是平铺的（server.js / auth.js / storage.js / logger.js 就在包根），不是 src/ 布局：
