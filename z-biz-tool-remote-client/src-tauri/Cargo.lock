@@ -6771,7 +6771,7 @@ dependencies = [
 
 [[package]]
 name = "z-biz-tool-remote"
-version = "0.2.0"
+version = "0.2.5"
 dependencies = [
  "base64 0.22.1",
  "cap-img",
