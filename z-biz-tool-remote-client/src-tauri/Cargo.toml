@@ -21,10 +21,11 @@ tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
-base64 = "0.22"
 xcap = "0.9.8"
 enigo = "0.3"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+# 能力层：帧的等比缩放 + RGBA→RGB 降通道 + JPEG/base64 编码（capture.rs 唯一编码路径）
+# image/base64 两个直接依赖已随之清零：缩放与编码都在 cap-img 内，本仓只传 xcap 采集到的像素
+cap-img = "0.2.0"
 
 [profile.release]
 panic = "abort"
@@ -32,3 +33,7 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+
+[dev-dependencies]
+# 仅测试里解回 JPEG 断言用（生产路径的 base64 已随 cap-img 下沉）
+base64 = "0.22"
