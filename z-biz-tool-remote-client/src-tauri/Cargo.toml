@@ -3,6 +3,7 @@ name = "z-biz-tool-remote"
 version = "0.2.0"
 description = "跨平台远程控制桌面客户端"
 edition = "2021"
+license = "MIT"
 
 [lib]
 name = "z_biz_tool_remote_lib"
