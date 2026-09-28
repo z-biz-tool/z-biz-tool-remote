@@ -57,6 +57,8 @@ if (AUTH_TOKEN && AUTH_TOKEN.length < 16) {
 const clients = new Map(); // deviceId -> ws
 /** @type {Map<string, { hostId: string|null, sessionToken: string|null, clients: Set<string>, createdAt: number }>} */
 const sessions = new Map(); // sessionId -> session
+/** @type {Map<string, Set<string>>} host deviceId -> deviceIds it accepted control from */
+const controlGrants = new Map();
 
 let startedAt = Date.now();
 let totalConnections = 0;
@@ -80,6 +82,45 @@ function getOrCreateSession(sessionId) {
     sessions.set(sessionId, s);
   }
   return s;
+}
+
+// INPUT_EVENT ends up as real mouse/keyboard injection on the target machine,
+// so "the host clicked accept on this device" has to be state the server
+// actually remembers — the client's own isHosting flag is not a gate.
+function grantControl(hostId, peerId) {
+  if (!hostId || !peerId) return;
+  let peers = controlGrants.get(hostId);
+  if (!peers) {
+    peers = new Set();
+    controlGrants.set(hostId, peers);
+  }
+  peers.add(peerId);
+}
+
+function revokeControl(hostId, peerId) {
+  const peers = controlGrants.get(hostId);
+  if (!peers) return;
+  peers.delete(peerId);
+  if (!peers.size) controlGrants.delete(hostId);
+}
+
+function dropGrantsFor(deviceId) {
+  controlGrants.delete(deviceId);
+  for (const [hostId, peers] of controlGrants) {
+    if (peers.delete(deviceId) && !peers.size) controlGrants.delete(hostId);
+  }
+}
+
+/** True when `peerId` may drive `hostId`: an accepted control link, or both
+ *  sides genuinely belonging to the claimed session. A guessed sessionId is
+ *  useless here because membership is checked against the sender too. */
+function canRelay(hostId, peerId, sessionId) {
+  if (!hostId || !peerId || hostId === peerId) return false;
+  if (controlGrants.get(hostId)?.has(peerId)) return true;
+  const sess = sessions.get(sessionId);
+  if (!sess) return false;
+  const inSess = (id) => id === sess.hostId || sess.clients.has(id);
+  return inSess(hostId) && inSess(peerId);
 }
 
 function listOnlineDevices() {
@@ -331,6 +372,9 @@ wss.on("connection", (ws, req, user) => {
           sessions.delete(sid);
         }
       }
+      // An offline device can no longer be on the receiving end of a grant,
+      // and must not be able to resume control with a stale one.
+      dropGrantsFor(deviceId);
     }
     persistSessions();
   });
@@ -466,6 +510,7 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
           message: msg.message || "对方拒绝",
         });
       }
+      revokeControl(deviceId, targetId);
       logger.info("control reject", { from: deviceId, to: targetId });
       break;
     }
@@ -479,8 +524,13 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
           targetId: deviceId,
           sessionId: msg.sessionId,
         });
+        grantControl(deviceId, targetId);
+        logger.info("control accepted", {
+          host: deviceId,
+          peer: targetId,
+          peers: controlGrants.get(deviceId)?.size ?? 0,
+        });
       }
-      logger.info("control accept", { from: deviceId, to: targetId });
       break;
     }
     case "SCREEN_FRAME": {
@@ -504,18 +554,57 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
     case "INPUT_EVENT": {
       if (!deviceId) return;
       const targetId = msg.targetId;
+      if (!canRelay(targetId, deviceId, msg.sessionId)) {
+        send(ws, { type: "CONTROL_FAILED", message: "未被授权控制该设备" });
+        logger.warn("input event rejected", { from: deviceId, to: targetId });
+        return;
+      }
       const targetWs = clients.get(targetId);
       if (targetWs) {
         send(targetWs, {
           type: "INPUT_EVENT",
           event: msg.event,
           sessionId: msg.sessionId,
+          fromId: deviceId,
         });
       }
       break;
     }
     case "GET_ONLINE_DEVICES": {
       send(ws, { type: "ONLINE_DEVICES", devices: listOnlineDevices() });
+      break;
+    }
+    case "WEBRTC_SIGNAL": {
+      // SDP/ICE 一跳转发：服务端不理解内容，所以更得把"谁能把信令塞给谁"看住
+      if (!deviceId) return;
+      if (msg.kind !== "offer" && msg.kind !== "answer" && msg.kind !== "ice") return;
+      if (typeof msg.sdp === "string" && msg.sdp.length > 65536) return;
+      if (typeof msg.candidate === "string" && msg.candidate.length > 4096) return;
+      const payload = {
+        type: "WEBRTC_SIGNAL",
+        kind: msg.kind,
+        sdp: msg.sdp,
+        candidate: msg.candidate ?? null,
+        fromId: deviceId,
+        sessionId: msg.sessionId,
+      };
+      if (msg.targetId) {
+        // 媒体可能双向协商，所以两个方向里有一个是已授权的配对即可
+        const paired =
+          canRelay(msg.targetId, deviceId, msg.sessionId) ||
+          canRelay(deviceId, msg.targetId, msg.sessionId);
+        if (paired) send(clients.get(msg.targetId), payload);
+        break;
+      }
+      const sess = sessions.get(msg.sessionId);
+      if (!sess) break;
+      if (deviceId !== sess.hostId && !sess.clients.has(deviceId)) break;
+      const peers = new Set(sess.clients);
+      if (sess.hostId) peers.add(sess.hostId);
+      for (const pid of peers) {
+        if (pid === deviceId) continue;
+        send(clients.get(pid), payload);
+      }
       break;
     }
     case "PING":

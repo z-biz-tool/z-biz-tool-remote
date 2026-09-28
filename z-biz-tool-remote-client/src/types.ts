@@ -92,6 +92,7 @@ export type SignalMessage =
       targetId?: string;
       event: InputEventPayload;
       sessionId: string;
+      fromId?: string;
     }
   | { type: "GET_ONLINE_DEVICES" }
   | {
@@ -100,6 +101,19 @@ export type SignalMessage =
     }
   | { type: "PONG" }
   | { type: "PING" }
+  // 服务端错误：code 用于区分"可重试"与"凭据/权限类终止"
+  | { type: "ERROR"; code: string; message?: string }
+  | { type: "SERVER_SHUTDOWN"; message?: string }
+  // WebRTC 信令经服务端一跳转发（SDP / ICE candidate）
+  | {
+      type: "WEBRTC_SIGNAL";
+      targetId?: string;
+      sessionId?: string;
+      fromId?: string;
+      kind: "offer" | "answer" | "ice";
+      sdp?: string;
+      candidate?: Record<string, unknown> | null;
+    }
   // 文件传输
   | {
       type: "FILE_TRANSFER_REQUEST";
@@ -164,7 +178,16 @@ export type InputEventPayload =
 
 // ============ 内部状态类型 ============
 
-export type ConnectionState = "offline" | "connecting" | "online";
+export type ConnectionState = "offline" | "connecting" | "online" | "reconnecting" | "failed";
+
+/** WebRTC 信令负载（不含 type / 路由字段）。 */
+export interface WebRtcSignalPayload {
+  kind: "offer" | "answer" | "ice";
+  sdp?: string;
+  candidate?: Record<string, unknown> | null;
+  fromId?: string;
+  sessionId?: string;
+}
 
 export type View =
   | { kind: "login" }

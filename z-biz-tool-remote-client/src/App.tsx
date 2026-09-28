@@ -8,6 +8,9 @@ import { ControlView } from "./components/ControlView";
 import { useSessionStore } from "./stores/sessionStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { signaling } from "./services/signaling";
+import { bindPeerRuntime, handleIncomingSignal, teardownPeer } from "./services/webrtc";
+import { startStatsTicker, stopStatsTicker } from "./stores/statsStore";
+import type { ConnectionState } from "./types";
 import {
   addHistory,
   addTrusted,
@@ -39,6 +42,7 @@ export default function App() {
   } = useSessionStore();
   const [hydrated, setHydrated] = useState(false);
   const autoRestoreTried = useRef(false);
+  const grantedPeers = useRef(new Set<string>());
 
   useEffect(() => {
     // 1) Hydrate from ~/.z-biz-tool-remote/state.json BEFORE showing
@@ -126,20 +130,39 @@ export default function App() {
   }, [hydrated]);
 
   useEffect(() => {
-    // Auto-connect is handled by App.tsx (see auto-restore above) after
-    // hydration. Here we only wire up signaling event listeners.
-
-    const offOpen = signaling.on("open", () => {
-      setConnection("online");
+    // 自动连接由上面的 auto-restore 处理；这里只挂事件与遥测
+    // WebRTC 信令出口：会话内单播给已知对端，否则按 sessionId 广播给其余成员
+    bindPeerRuntime({
+      sendSignal: (payload) => {
+        const s = useSessionStore.getState();
+        if (!s.sessionId) return false;
+        return signaling.sendWebrtcSignal(s.targetDeviceId ?? "", s.sessionId, payload);
+      },
     });
-    const offClose = signaling.on("close", () => {
-      setConnection("offline");
+
+    const offState = signaling.on("state", (st) => {
+      const map: Record<string, ConnectionState> = {
+        online: "online",
+        connecting: "connecting",
+        reconnecting: "reconnecting",
+        failed: "failed",
+        idle: "offline",
+      };
+      setConnection(map[st.phase] ?? "offline");
+      if (st.phase === "failed" && st.reason) setLastError(st.reason);
     });
     const offError = signaling.on("error", (e) => {
       const msg = e instanceof Event ? `type=${e.type}` : String(e);
       console.error("ws error", e);
       setLastError(msg);
     });
+    const offSignal = signaling.on("webrtc-signal", (payload) => {
+      if (!payload.fromId) return;
+      const s = useSessionStore.getState();
+      if (payload.sessionId && s.sessionId && payload.sessionId !== s.sessionId) return;
+      handleIncomingSignal(payload);
+    });
+    startStatsTicker();
 
     const offMessage = signaling.on("message", (msg) => {
       switch (msg.type) {
@@ -263,6 +286,7 @@ export default function App() {
           const sameUser = (msg as { sameUser?: boolean }).sameUser === true;
           const accept = () => {
             signaling.acceptControl(fromId, sessId, isEphemeral);
+            grantedPeers.current.add(fromId);
             useSessionStore.getState().setHosting(true);
           };
           // Auto-accept (no dialog) in any of these cases:
@@ -295,6 +319,11 @@ export default function App() {
           });
           break;
         }
+        case "CLIENT_JOINED": {
+          // 对方持有效 sessionToken 进来，服务端已验过；记为可投递输入的对端
+          grantedPeers.current.add(msg.clientId);
+          break;
+        }
         case "ONLINE_DEVICES": {
           useSessionStore.getState().setOnlineDevices(
             msg.devices
@@ -305,6 +334,7 @@ export default function App() {
         }
         case "SESSION_CLOSED": {
           useSessionStore.getState().clearSession();
+          grantedPeers.current.clear();
           setView({ kind: "main" });
           message.info(msg.message ?? "会话已结束");
           break;
@@ -315,10 +345,12 @@ export default function App() {
     });
 
     return () => {
-      offOpen();
-      offClose();
+      offState();
       offError();
+      offSignal();
       offMessage();
+      stopStatsTicker();
+      teardownPeer("app-unmount");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -328,11 +360,12 @@ export default function App() {
     const off = signaling.on("message", (msg) => {
       if (msg.type !== "INPUT_EVENT") return;
       const isHosting = useSessionStore.getState().isHosting;
-      const requirePermission = useSettingsStore.getState().settings.requirePermission;
       if (!isHosting) return;
-      if (requirePermission) {
-        // 已在 CONTROL_REQUEST 阶段确认过；这里只信任已建立的会话
-        // no-op
+      // simulate_input 是真往操作系统里注事件，不能只信中继：只有这台机器明确
+      // 接受过（CONTROL_ACCEPT）或验证过令牌（CLIENT_JOINED）的那个对端才行
+      if (!msg.fromId || !grantedPeers.current.has(msg.fromId)) {
+        console.warn("dropped INPUT_EVENT from ungranted peer", msg.fromId);
+        return;
       }
       invoke("simulate_input", { event: msg.event }).catch((e) => {
         console.error("simulate_input failed", e);

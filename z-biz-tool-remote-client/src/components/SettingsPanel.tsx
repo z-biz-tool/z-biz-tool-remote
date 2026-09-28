@@ -177,6 +177,7 @@ export function SettingsPanel() {
             max={95}
             value={draft.frameQuality}
             onChange={(v) => setDraft({ ...draft, frameQuality: v })}
+            onChangeComplete={(v) => update({ frameQuality: v })}
           />
         </Form.Item>
         <Form.Item label={`最大宽度: ${draft.maxFrameWidth === 0 ? "原生" : draft.maxFrameWidth + "px"}`}>
@@ -202,7 +203,11 @@ export function SettingsPanel() {
             max={30}
             value={draft.fps}
             onChange={(v) => setDraft({ ...draft, fps: v })}
+            onChangeComplete={(v) => update({ fps: v })}
           />
+          <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+            松手即生效，无需重开会话；实际帧率见画面下方的遥测条。
+          </div>
         </Form.Item>
         <Form.Item label={t("settings.reconnect")}>
           <InputNumber

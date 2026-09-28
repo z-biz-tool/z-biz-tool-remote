@@ -14,7 +14,8 @@
     "tauri:build:dmg": "tauri build --bundles dmg",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
-    "server": "node signaling-server.js"
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "server": "node ../z-biz-tool-remote-server/server.js"
   },
   "dependencies": {
     "react": "^19.0.0",

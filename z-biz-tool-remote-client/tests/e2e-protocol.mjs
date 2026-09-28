@@ -50,6 +50,16 @@ function log(name, msg) {
   console.log(`  [${name}] <= ${JSON.stringify(msg).slice(0, 120)}${JSON.stringify(msg).length > 120 ? "..." : ""}`);
 }
 
+// 断言"没收到"必须等一会儿：waitFor 只证明收到，证明不了没收到。
+function expectSilent(client, predicate, ms = 600) {
+  return client.waitFor(predicate, ms).then(
+    () => {
+      throw new Error(`[${client.name}] expected silence, got a matching message`);
+    },
+    () => {}
+  );
+}
+
 async function main() {
   console.log(`connecting to ${URL}`);
   const host = makeClient("host");
@@ -115,6 +125,51 @@ async function main() {
   });
   const inEvt = await host.waitFor((m) => m.type === "INPUT_EVENT" && m.event?.x === 100);
   log("host", inEvt);
+  if (inEvt.fromId !== ctrlId) throw new Error("INPUT_EVENT lost its fromId");
+
+  // 8.2 未授权设备不能往别人的被控端注输入 / 塞 SDP
+  const intruder = makeClient("intruder");
+  await intruder.ready;
+  intruder.send({ type: "REGISTER", deviceId: "evil-C" });
+  const evilReg = await intruder.waitFor((m) => m.type === "REGISTER_SUCCESS");
+  const evilId = evilReg.deviceId;
+
+  intruder.send({
+    type: "INPUT_EVENT",
+    targetId: hostId,
+    sessionId,
+    event: { type: "key-down", key: "x", x: 999, y: 999 },
+  });
+  const denied = await intruder.waitFor((m) => m.type === "CONTROL_FAILED");
+  log("intruder", denied);
+  await expectSilent(host, (m) => m.type === "INPUT_EVENT" && m.event?.x === 999);
+
+  // 猜对 sessionId 也没用：授权是看发送方是不是会话成员
+  intruder.send({ type: "WEBRTC_SIGNAL", targetId: hostId, sessionId, kind: "offer", sdp: "v=0\r\nevil" });
+  await expectSilent(host, (m) => m.type === "WEBRTC_SIGNAL" && m.fromId === evilId);
+  intruder.close();
+
+  // 8.5 WebRTC 信令中继：SDP 定向单播 + ICE 按会话广播（服务端不理解内容，只做一跳）
+  host.send({ type: "WEBRTC_SIGNAL", targetId: ctrlId, sessionId, kind: "offer", sdp: "v=0\r\nfake-sdp" });
+  const offer = await ctrl.waitFor((m) => m.type === "WEBRTC_SIGNAL" && m.kind === "offer" && m.fromId === hostId);
+  log("ctrl", offer);
+  if (typeof offer.sdp !== "string" || !offer.sdp.startsWith("v=0")) throw new Error("sdp not relayed");
+  if (offer.sessionId !== sessionId) throw new Error("sessionId lost in relay");
+
+  ctrl.send({
+    type: "WEBRTC_SIGNAL",
+    sessionId,
+    kind: "ice",
+    candidate: { candidate: "candidate:1 1 udp 2122260223 10.0.0.1 54321 typ host" },
+  });
+  const ice = await host.waitFor((m) => m.type === "WEBRTC_SIGNAL" && m.kind === "ice" && m.fromId === ctrlId);
+  log("host", ice);
+  if (!ice.candidate || !String(ice.candidate.candidate).includes("typ host")) throw new Error("ice not relayed");
+
+  // 超大 SDP 必须被丢弃（防放大攻击），且不影响后续正常信令
+  host.send({ type: "WEBRTC_SIGNAL", targetId: ctrlId, sessionId, kind: "offer", sdp: "x".repeat(70000) });
+  const oversized = await ctrl.waitFor((m) => m.type === "WEBRTC_SIGNAL" && typeof m.sdp === "string" && m.sdp.length > 60000, 700).catch(() => null);
+  if (oversized) throw new Error("oversized sdp should have been dropped");
 
   // 9. host closes session (simulated via disconnect)
   host.close();

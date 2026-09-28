@@ -3,6 +3,7 @@ import { PoweroffOutlined, CopyOutlined } from "@ant-design/icons";
 import { useEffect } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { startCaptureLoop, stopCaptureLoop } from "../services/capture";
+import { StreamStatsBar } from "./StreamStatsBar";
 import { t } from "../i18n";
 
 export function HostingView() {
@@ -31,6 +32,7 @@ export function HostingView() {
       <h2>{t("hosting.title")}</h2>
       <div style={{ opacity: 0.85 }}>{t("hosting.shareHint")}</div>
       <div className="session-code">{sessionId || "—"}</div>
+      <StreamStatsBar side="host" />
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ opacity: 0.85 }}>Token:</span>
         <span className="session-code" style={{ fontSize: 18, padding: "6px 12px" }}>
