@@ -71,6 +71,13 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # 客户端的 11 条纯逻辑测试（重连决策 / 滑窗统计 / 水位滞回 / RTT 配对）此前
+      # 从没进过 CI：仓库里有测试、package.json 里有 test 脚本，但这个 job 只做
+      # typecheck + build，于是这些用例一次都没在远端跑过 —— 红了也没人知道。
+      # 放在 build 之前：11 条断言要 60ms，挂在构建后面等于白挂。
+      - name: Unit tests
+        run: npm test
+
       - name: Build
         # build 脚本自带 tsc --noEmit，之后是 vite build；这里要的是"打包真的能过"，
         # 而不只是类型能过。
