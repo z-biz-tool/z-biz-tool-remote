@@ -39,7 +39,7 @@ jobs:
       # server 目录只有 package.json、没有锁文件，npm ci 会直接报错；先用 install 把门禁跑起来，
       # 补锁文件是另一件事（会改依赖解析口径）。
       - name: Install dependencies
-        run: npm install --registry=https://registry.npmmirror.com
+        run: npm install
 
       # 原来的 matrix 用 node 20/22 各跑一遍：runner 已经在把 Node 20 强制升到 24 跑，
       # 那条腿量不到 20 的行为，只会留下 deprecation 警告。改成一条 22（本仓 engines 要 >=18）。
@@ -66,7 +66,7 @@ jobs:
           cache-dependency-path: z-biz-tool-remote-client/package-lock.json
 
       - name: Install dependencies
-        run: npm ci --registry=https://registry.npmmirror.com
+        run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
