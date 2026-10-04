@@ -14,7 +14,7 @@
     "tauri:build:dmg": "tauri build --bundles dmg",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test": "node --experimental-strip-types --import ./tests/register-ts-ext.mjs --test tests/*.test.ts",
     "server": "node ../z-biz-tool-remote-server/server.js"
   },
   "dependencies": {

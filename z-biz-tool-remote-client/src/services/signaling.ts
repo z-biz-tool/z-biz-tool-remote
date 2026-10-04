@@ -316,7 +316,16 @@ export class SignalingClient extends Emitter {
     this.drops.reset();
     this.rtt.reset();
     this.bufferedPaused = false;
-    this.setPhase("idle");
+    // 2026-10-04 修：这里原本**无条件** setPhase("idle")，于是覆盖掉调用方
+    // 刚设好的终态。handleIncoming 的 ERROR/terminal 分支正是
+    // 「setPhase("failed") → disconnect() → 再 set intentionalClose」这个顺序，
+    // 结果 failed 被自己刷成 idle：UI 上表现为**令牌失效/服务端拒绝后
+    // 不显示"连接失败"，而是静默回到未连接态**，用户看不出发生了什么。
+    // 证据：tests/signaling.test.ts 的「ERROR/终止类 code ⇒ failed」用例，
+    //   实际观测到 'idle' !== 'failed'。
+    // 修法：终态（failed）优先级高于 disconnect 的收尾动作。
+    //   「用户主动断开」路径不受影响——那条路 phase 本来就不是 failed。
+    if (this.phase !== "failed") this.setPhase("idle");
   }
 
   /** 用户在 UI 上点"重试"：绕过后端退避计数立即再来一次。 */

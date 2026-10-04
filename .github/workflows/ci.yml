@@ -71,10 +71,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      # 客户端的 11 条纯逻辑测试（重连决策 / 滑窗统计 / 水位滞回 / RTT 配对）此前
-      # 从没进过 CI：仓库里有测试、package.json 里有 test 脚本，但这个 job 只做
-      # typecheck + build，于是这些用例一次都没在远端跑过 —— 红了也没人知道。
-      # 放在 build 之前：11 条断言要 60ms，挂在构建后面等于白挂。
+      # 客户端的纯逻辑测试此前从没进过 CI：仓库里有测试、package.json 里有 test 脚本，
+      # 但这个 job 只做 typecheck + build，于是这些用例一次都没在远端跑过 —— 红了也没人知道。
+      # 放在 build 之前：断言只要几十毫秒，挂在构建后面等于白挂。
+      # 2026-10-04：11 → 28 条（新增 signaling 状态机 17 条，见 tests/signaling.test.ts）。
+      # 那 17 条里含一条钉住真实缺陷的用例：disconnect() 曾无条件 setPhase("idle")，
+      # 把调用方刚设的 failed 冲掉，令牌失效时 UI 静默回到未连接态而不报错。
       - name: Unit tests
         run: npm test
 
