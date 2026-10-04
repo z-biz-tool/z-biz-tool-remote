@@ -537,6 +537,20 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
       if (!deviceId) return;
       const sess = sessions.get(msg.sessionId);
       if (!sess) return;
+      // 2026-10-04 补：原先只按 sessionId 找到会话就扇出，**不校验发送方是不是
+      // 该会话的成员**。sessionId 是 8 位随机串不是密钥，但这仍意味着任何一个
+      // 已注册设备，只要拿到/猜到 sessionId，就能往该会话里注入屏幕画面
+      // （即伪造远端画面）。本仓的兄弟通道 INPUT_EVENT 与 WEBRTC_SIGNAL 都走了
+      // canRelay 校验，只有这里漏了——三选一的漏检。
+      // 口径与 canRelay 一致：host 本人、或 sess.clients 里的客户端，才算会话成员。
+      const isMember = deviceId === sess.hostId || sess.clients.has(deviceId);
+      if (!isMember) {
+        logger.warn("screen frame rejected: not a session member", {
+          from: deviceId,
+          sessionId: msg.sessionId,
+        });
+        return;
+      }
       // Fan out to every other participant in this session.
       let n = 0;
       for (const cid of sess.clients) {
