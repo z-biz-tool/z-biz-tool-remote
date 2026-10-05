@@ -123,8 +123,28 @@ function canRelay(hostId, peerId, sessionId) {
   return inSess(hostId) && inSess(peerId);
 }
 
-function listOnlineDevices() {
-  return [...clients.keys()].map((id) => ({ id, online: true }));
+/** 「在线设备」列表 —— **按调用者可见范围裁剪**。
+ *
+ *  2026-10-05 补：原先这里直接吐 `[...clients.keys()]`，也就是**全量 deviceId**。
+ *  在账号模式下这是一次跨租户目录泄漏：任何注册用户都能枚举到全组织在线设备的
+ *  id，而 deviceId 正是 `CONTROL_REQUEST` 的寻址目标。兄弟通道 `LIST_MY_DEVICES`
+ *  早就按 `listDevicesByUser` 裁剪了，只有这条漏了。
+ *
+ *  口径：
+ *  - 账号模式（带 user）：只返回该用户名下的设备，与 LIST_MY_DEVICES 同源。
+ *  - 共享 AUTH_TOKEN 模式：整个部署共用一个 token，本就是一个逻辑租户，返回全量
+ *    与该模式的信任模型自洽 —— 这也是这里唯一保留全量的分支，且它需要显式的
+ *    共享 token 才进得来。
+ */
+function listOnlineDevicesFor(user) {
+  const online = new Set(clients.keys());
+  if (!user) {
+    return [...online].map((id) => ({ id, online: true }));
+  }
+  return store
+    .listDevicesByUser(user.id)
+    .filter((d) => online.has(d.id))
+    .map((d) => ({ id: d.id, name: d.name || d.id, online: true }));
 }
 
 function snapshotSessions() {
@@ -585,7 +605,7 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
       break;
     }
     case "GET_ONLINE_DEVICES": {
-      send(ws, { type: "ONLINE_DEVICES", devices: listOnlineDevices() });
+      send(ws, { type: "ONLINE_DEVICES", devices: listOnlineDevicesFor(user) });
       break;
     }
     case "WEBRTC_SIGNAL": {

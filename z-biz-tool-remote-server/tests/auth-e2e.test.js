@@ -197,6 +197,31 @@ async function main() {
     }
     console.log("[t] cross-user isolation OK (bob sees only his own) ✓");
 
+    // 5d. GET_ONLINE_DEVICES 的租户隔离（2026-10-05 补）
+    // 这条此前吐的是全量 clients 的 key，于是 bob 能枚举到 alice 的 deviceId。
+    // deviceId 又是 CONTROL_REQUEST 的寻址目标，等于白送一份目标清单。
+    bobWs.send({ type: "GET_ONLINE_DEVICES" });
+    const bobOnline = await bobWs.waitFor((m) => m.type === "ONLINE_DEVICES");
+    const bobOnlineIds = bobOnline.devices.map((d) => d.id);
+    for (const leaked of ["alice-mac", "alice-iphone"]) {
+      assert(
+        !bobOnlineIds.includes(leaked),
+        `GET_ONLINE_DEVICES 泄漏了 alice 的 ${leaked}: ${bobOnlineIds}`
+      );
+    }
+    assert(bobOnlineIds.includes("bob-laptop"), `bob 应看得到自己的设备: ${bobOnlineIds}`);
+    console.log(`[t] GET_ONLINE_DEVICES 对 bob 只返回 ${bobOnlineIds.length} 台（隔离生效）✓`);
+
+    // 反向对照：alice 自己必须仍能看到两台，否则这条判据是「一律返回空」
+    alice1.send({ type: "GET_ONLINE_DEVICES" });
+    const aliceOnline = await alice1.waitFor((m) => m.type === "ONLINE_DEVICES");
+    const aliceOnlineIds = aliceOnline.devices.map((d) => d.id).sort();
+    assert(
+      JSON.stringify(aliceOnlineIds) === JSON.stringify(["alice-iphone", "alice-mac"]),
+      `alice 应看得到自己两台在线设备: ${aliceOnlineIds}`
+    );
+    console.log("[t] GET_ONLINE_DEVICES 对 alice 仍返回自己 2 台（未误伤）✓");
+
     // 6. PATCH device name
     const patch1 = await patch(port, "/api/devices/alice-mac", { name: "Alice 的家用机" }, aliceAccess);
     assert(patch1.status === 200, "patch status");
