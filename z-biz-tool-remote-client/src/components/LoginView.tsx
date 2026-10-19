@@ -1,19 +1,31 @@
-import { AutoComplete, Button, Card, Form, Input, Space, Switch, Tabs, Tag, Typography, message } from "antd";
+import { Alert, AutoComplete, Button, Card, Form, Input, Space, Switch, Tabs, Tag, Typography, message } from "antd";
 import { ApiOutlined, DisconnectOutlined, UserAddOutlined, LoginOutlined } from "@ant-design/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { signaling } from "../services/signaling";
-import { getAuth, getServerPresets, touchServer, displayUrl, toWsUrl, type ServerPreset } from "../services/storage";
+import { getAuth, getServerPresets, touchServer, displayUrl, cleanAddress, describeWsUrl, type ServerPreset } from "../services/storage";
 import * as api from "../services/api";
 import { t } from "../i18n";
 
 export function LoginView() {
   const { connection, deviceId, setConnection, lastError } = useSessionStore();
   const { settings, update } = useSettingsStore();
-  // Always show the URL as bare `host:port` (this is our private protocol,
-  // the ws:// prefix is an internal transport detail).
-  const [serverUrl, setServerUrl] = useState(displayUrl(settings.serverUrl));
+  // 服务器地址。**按用户写的原样保留**（可以带 wss:// / ws:// 前缀）：
+  // 剥掉协议就等于抹掉「用户主动要求了 TLS」这件事，
+  // 而本机地址在缺省时会回落成 ws://（明文）—— 那就又回到老坑了。
+  const [serverUrl, setServerUrl] = useState(settings.serverUrl);
+  /**
+   * 传输方式**不是**"内部实现细节"，也不是可以随便勾的开关。
+   *
+   * 屏幕像素与键鼠事件都走这条 WebSocket，公网上的明文 ws:// 等于把画面和按键
+   * 直接暴露给旁路监听；账号令牌也在同一条链路的 URL 查询串里，所以"带内再套
+   * 一层加密"是自欺欺人 —— **唯一真正的防线是 TLS**。
+   *
+   * 所以这里**如实显示**「按这个地址实际会怎么连」，而不是让用户选一个
+   * 与实际连接不一致的选项。裁决规则见 storage.ts::describeWsUrl。
+   */
+  const transport = useMemo(() => describeWsUrl(serverUrl), [serverUrl]);
   const [autoConnect, setAutoConnect] = useState(settings.autoConnect);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -45,10 +57,17 @@ export function LoginView() {
   useEffect(() => {
     const auth = getAuth();
     if (auth && settings.autoConnect && connection === "offline") {
+      // 地址连不了时（格式非法 / 公网地址写了明文 ws://）**不要**去连：
+      // 连一个空地址只会得到一句看不懂的 "连接失败"。
+      const plan = describeWsUrl(settings.serverUrl);
+      if (!plan.url) {
+        message.warning(`自动连接已跳过：${plan.error ?? "服务器地址不可用"}`, 8);
+        return;
+      }
       setConnection("connecting");
       signaling.setReconnectInterval(settings.reconnectInterval);
       signaling.connect({
-        url: toWsUrl(settings.serverUrl),
+        url: plan.url,
         deviceId,
         deviceName: deviceName || undefined,
         token: auth.accessToken,
@@ -61,25 +80,21 @@ export function LoginView() {
     () =>
       presets.map((p) => ({
         value: p.url,
-        label: p.label ? `${p.label}  (${p.url})` : p.url,
+        label: p.label ? `${p.label}  (${displayUrl(p.url)})` : displayUrl(p.url),
       })),
     [presets]
   );
 
   async function doAuth() {
     const raw = serverUrl.trim();
-    if (!raw) {
-      message.error("请填写服务器地址");
-      return;
-    }
-    // Strip any accidentally-typed ws:// or wss://, then validate the
-    // bare host[:port] format. Examples we accept:
-    //   101.37.80.51:8080
-    //   signaling.example.com
-    //   ws://101.37.80.51:8080  (tolerated, stripped)
-    const stripped = raw.replace(/^wss?:\/\//i, "").replace(/\/+$/, "");
-    if (!/^[a-zA-Z0-9._-]+(:\d{1,5})?$/.test(stripped)) {
-      message.error("地址格式: 101.37.80.51:8080 或 signaling.example.com");
+    // 协议不再是"误输入"：原实现把 ws:// / wss:// 当作手滑**主动剥掉**，
+    // 于是用户即便显式填了 wss:// 也会连成明文 ws://，而屏幕像素与键鼠事件
+    // 都走这条链路 —— 公网上的明文等于把画面与按键直接暴露给旁路监听。
+    // 现在由 describeWsUrl 统一裁决：公网默认 wss，本机可用 ws，
+    // 公网写明文 ws:// 一律拒绝并说明原因。
+    const plan = describeWsUrl(raw);
+    if (plan.error) {
+      message.error(plan.error, 8);
       return;
     }
     if (!/^[a-zA-Z0-9_\-]{3,32}$/.test(username)) {
@@ -92,22 +107,30 @@ export function LoginView() {
     }
     setBusy(true);
     try {
-      const base = api.serverUrlToHttpBase(toWsUrl(stripped));
+      const base = api.serverUrlToHttpBase(plan.url);
       const sess =
         mode === "register"
           ? await api.register(base, username, password)
           : await api.login(base, username, password);
       // Bump this server to the top of the preset list so it shows up first next time
-      touchServer(stripped, username.includes("@") ? undefined : undefined);
-      update({ serverUrl: stripped, autoConnect });
+      touchServer(plan.url, username.includes("@") ? undefined : undefined);
+      // 存**实际会用到的**地址（含协议）：
+      // 存裸主机名会让「本机 + 显式 wss://」在下次自动连接时回落成明文 ws://。
+      update({ serverUrl: cleanAddress(raw), autoConnect });
       setConnection("connecting");
       signaling.setReconnectInterval(settings.reconnectInterval);
       signaling.connect({
-        url: toWsUrl(stripped),
+        url: plan.url,
         deviceId,
         deviceName: deviceName || sess.user.username,
         token: sess.accessToken,
       });
+      if (!plan.secure) {
+        message.warning(
+          "当前使用明文连接（ws://）：屏幕画面与键鼠事件在链路上是明文。公网使用请改用 TLS（wss://）。",
+          8
+        );
+      }
     } catch (e: any) {
       const status = e?.status;
       const body = e?.body as { error?: string } | undefined;
@@ -135,18 +158,36 @@ export function LoginView() {
     <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <Card style={{ width: 480 }} title={<Space><ApiOutlined /><span>{t("login.title")}</span></Space>}>
         <Form layout="vertical" onSubmitCapture={onSubmit}>
-          <Form.Item label={t("login.server")} extra="下拉选择历史服务器,或直接输入新地址 (如 101.37.80.51:8080 或 signaling.example.com)">
+          <Form.Item label={t("login.server")} extra="下拉选择历史服务器,或直接输入新地址 (如 signaling.example.com:8443 或 192.168.1.10:8080)">
             <AutoComplete
               value={serverUrl}
               onChange={(v) => setServerUrl(v)}
               options={autoCompleteOptions}
               disabled={connection === "online"}
-              placeholder="101.37.80.51:8080"
+              placeholder="signaling.example.com:8443"
               filterOption={(input, opt) =>
                 (opt?.value as string).toLowerCase().includes(input.toLowerCase()) ||
                 (opt?.label as string || "").toLowerCase().includes(input.toLowerCase())
               }
               allowClear
+            />
+          </Form.Item>
+
+          {/* 传输方式：这是安全状态，不是"内部实现细节"。
+              屏幕画面与键鼠事件都走这条链路，明文 ws:// 在公网上等于裸奔。
+              这里显示的是**按当前地址实际会怎么连**——不是让用户勾一个
+              与真实连接不一致的选项（勾了却不生效，比不显示更糟）。 */}
+          <Form.Item label="传输方式">
+            <Alert
+              type={transport.error ? "error" : transport.secure ? "success" : "warning"}
+              showIcon
+              message={
+                transport.error
+                  ? transport.error
+                  : transport.secure
+                    ? `将使用 TLS：${transport.url}（链路内容加密）`
+                    : `将使用明文：${transport.url} —— 屏幕画面与键鼠事件在链路上是明文，仅限本机 / 受信任内网`
+              }
             />
           </Form.Item>
 

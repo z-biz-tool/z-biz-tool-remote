@@ -5,7 +5,10 @@ export type SignalMessage =
   | {
       type: "REGISTER_SUCCESS";
       deviceId: string;
-      encryptionKey?: string;
+      // ⚠️ 原先这里有 `encryptionKey?: string` —— 已按台账 S1-B09/B10 删除。
+      // 它从来就不参与任何加解密（帧与键鼠事件都是明文 JSON），
+      // 留着一个叫 encryptionKey 的字段只会给用户「已加密」的错觉。
+      // 真正的防线是 TLS（wss://）。
       userId?: string;
       username?: string;
     }

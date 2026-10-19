@@ -20,7 +20,7 @@ import {
   isTrusted,
   persistNow,
   setAuth,
-  toWsUrl,
+  describeWsUrl,
 } from "./services/storage";
 import * as api from "./services/api";
 import { t } from "./i18n";
@@ -34,7 +34,6 @@ export default function App() {
     view,
     setView,
     setConnection,
-    setEncryptionKey,
     setSession,
     setControlling,
     setLastError,
@@ -96,13 +95,20 @@ export default function App() {
     // The access token may be expired. If so, refresh first so the WS
     // upgrade (which sends the access token) doesn't 401.
     const needsRefresh = !auth.accessToken || auth.expiresAt - REFRESH_SKEW_MS <= Date.now();
-    const base = api.serverUrlToHttpBase(toWsUrl(settings.serverUrl));
+    // 地址连不了时（格式非法 / 公网地址写了明文 ws://）**不要**去连：
+    // 连一个空地址只会得到一句看不懂的「连接失败」。
+    const plan = describeWsUrl(settings.serverUrl);
+    if (!plan.url) {
+      message.warning(`自动连接已跳过：${plan.error ?? "服务器地址不可用"}`, 8);
+      return;
+    }
+    const base = api.serverUrlToHttpBase(plan.url);
 
     const proceed = (accessToken: string) => {
       setConnection("connecting");
       signaling.setReconnectInterval(settings.reconnectInterval);
       signaling.connect({
-        url: toWsUrl(settings.serverUrl),
+        url: plan.url,
         deviceId,
         deviceName: deviceNameHint() || undefined,
         token: accessToken,
@@ -178,7 +184,10 @@ export default function App() {
             // survives a Tauri WebView storage wipe.
             void persistNow();
           }
-          setEncryptionKey(msg.encryptionKey ?? null);
+          // ⚠️ 原先这里 `setEncryptionKey(msg.encryptionKey ?? null)` ——
+          // 已按台账 S1-B09/B10 删除：那个字段不参与任何加解密，
+          // 留着它只会让用户以为链路是加密的（实际是明文 JSON）。
+          // 真正的防线是 TLS（wss://）。
           if (msg.userId && msg.username) {
             setUser({ userId: msg.userId, username: msg.username });
           }

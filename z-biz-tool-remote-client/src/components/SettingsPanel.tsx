@@ -12,6 +12,8 @@ import {
   removeServer,
   touchServer,
   displayUrl,
+  cleanAddress,
+  describeWsUrl,
   type ServerPreset,
 } from "../services/storage";
 
@@ -48,10 +50,19 @@ export function SettingsPanel() {
   };
 
   const onSave = () => {
-    const clean = displayUrl(draft.serverUrl);
-    update({ ...draft, serverUrl: clean });
-    setDraft({ ...draft, serverUrl: clean });
-    touchServer(clean);
+    // ⚠️ 这里原来用 `displayUrl(draft.serverUrl)` —— 那会把**协议一起剥掉**。
+    // 而本机地址在缺省时按 ws:// 处理，于是「用户显式填的 wss://」在保存那一刻
+    // 就被降级成明文了。现在由 describeWsUrl 统一裁决，并原样保留协议。
+    const plan = describeWsUrl(draft.serverUrl);
+    if (plan.error) {
+      message.error(plan.error, 8);
+      return;
+    }
+    const clean = cleanAddress(draft.serverUrl);
+    const next = { ...draft, serverUrl: clean };
+    update(next);
+    setDraft(next);
+    touchServer(plan.url);
     message.success("设置已保存");
     setPresets(getServerPresets());
 
@@ -69,7 +80,14 @@ export function SettingsPanel() {
   const onAddServer = () => {
     const url = newServerUrl.trim();
     if (!url) return;
-    addServer(url);
+    // 存**实际会用的**地址（含协议），否则挑回来时会按缺省重新推导一遍，
+    // 「本机 + 显式 wss://」就会掉回明文 ws://。
+    const plan = describeWsUrl(url);
+    if (plan.error) {
+      message.error(plan.error, 8);
+      return;
+    }
+    addServer(plan.url);
     setNewServerUrl("");
     refreshPresets();
     message.success("已添加");
@@ -99,7 +117,7 @@ export function SettingsPanel() {
           <Input
             value={draft.serverUrl}
             onChange={(e) => setDraft({ ...draft, serverUrl: e.target.value })}
-            placeholder="101.37.80.51:8080"
+            placeholder="signaling.example.com:8443"
           />
         </Form.Item>
 
@@ -133,7 +151,7 @@ export function SettingsPanel() {
                 >
                   <Space>
                     {isCurrent && <Tag color="blue">当前</Tag>}
-                    <span style={{ fontFamily: "monospace" }}>{p.url}</span>
+                    <span style={{ fontFamily: "monospace" }}>{displayUrl(p.url)}</span>
                     {p.label && <span style={{ color: "#999" }}>({p.label})</span>}
                   </Space>
                 </List.Item>

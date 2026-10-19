@@ -435,8 +435,16 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
       send(ws, {
         type: "REGISTER_SUCCESS",
         deviceId: getDeviceId(),
-        // Production deployments should rotate this; here we keep the original test key for compatibility.
-        encryptionKey: msg.encryptionKey || process.env.ENCRYPTION_KEY || "test-key",
+        // ⚠️ 这里**曾经**有一个 `encryptionKey` 字段，现在**删掉了**（台账 S1-B09/B10）。
+        // 它从来就不参与任何加解密：屏幕帧与键鼠事件都走
+        // `ws.send(JSON.stringify(msg))` 的明文 JSON。
+        // 没有 TLS 的时候，带内加密是自欺欺人 —— 账号令牌也在同一条链路的 URL
+        // 查询串里，窃听者连密钥一起看得到。**真正的防线是 WSS**
+        // （本服务端支持 TLS_KEY_PATH / TLS_CERT_PATH，见文件头）。
+        //
+        // 为什么是「删掉」而不是「换成一个随机值」：
+        // 留着一个叫 encryptionKey 的字段，就会让用户以为链路是加密的 ——
+        // 而它其实什么都不是。**给用户「已加密」的错觉，比不加密更危险。**
         // Tell the client whether it's bound to a user account.
         userId: user ? user.id : null,
         username: user ? user.username : null,

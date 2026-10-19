@@ -6,7 +6,6 @@ interface SessionStore {
   view: View;
   connection: ConnectionState;
   onlineDevices: OnlineDevice[];
-  encryptionKey: string | null;
   lastError: string | null;
   // User account (after login)
   userId: string | null;
@@ -27,7 +26,6 @@ interface SessionStore {
   setConnection: (s: ConnectionState) => void;
   setOnlineDevices: (d: OnlineDevice[]) => void;
   setLastError: (e: string | null) => void;
-  setEncryptionKey: (k: string | null) => void;
   setUser: (u: { userId: string; username: string } | null) => void;
   setDeviceId: (id: string) => void;
   setSession: (info: { sessionId: string; sessionToken?: string; role: "host" | "client"; targetDeviceId?: string }) => void;
@@ -45,7 +43,6 @@ export const useSessionStore = create<SessionStore>((set) => ({
   connection: "offline",
   onlineDevices: [],
   lastError: null,
-  encryptionKey: null,
   userId: null,
   username: null,
   sessionId: null,
@@ -60,7 +57,6 @@ export const useSessionStore = create<SessionStore>((set) => ({
   setConnection: (connection) => set({ connection }),
   setOnlineDevices: (onlineDevices) => set({ onlineDevices }),
   setLastError: (lastError) => set({ lastError }),
-  setEncryptionKey: (encryptionKey) => set({ encryptionKey }),
   setUser: (u) => set(u ? { userId: u.userId, username: u.username } : { userId: null, username: null }),
   setDeviceId: (deviceId) => set({ deviceId }),
   setSession: ({ sessionId, sessionToken, role, targetDeviceId }) =>

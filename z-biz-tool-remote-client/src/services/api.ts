@@ -16,13 +16,19 @@ import { getAuth, setAuth, type AuthSession } from "./storage";
 
 // Convert ws://host:port  ->  http://host:port
 // Convert wss://host:port ->  https://host:port
+//
+// ⚠️ 空串必须原样返回空串：地址连不上时（格式非法 / 公网地址写了明文 ws://），
+// 上游会给空串，**不能**让 `new URL("")` 抛异常后回退成原值 ——
+// 那样 fetch 会打到一个相对路径上，报出一个和真实原因无关的错。
 export function serverUrlToHttpBase(serverUrl: string): string {
+  const raw = (serverUrl ?? "").trim();
+  if (!raw) return "";
   try {
-    const u = new URL(serverUrl);
+    const u = new URL(raw);
     const proto = u.protocol === "wss:" ? "https:" : "http:";
     return `${proto}//${u.host}`;
   } catch {
-    return serverUrl;
+    return raw;
   }
 }
 

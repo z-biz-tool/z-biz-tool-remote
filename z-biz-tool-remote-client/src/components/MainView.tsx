@@ -32,7 +32,7 @@ import { t } from "../i18n";
 import { SettingsPanel } from "./SettingsPanel";
 import { FileTransferPanel } from "./FileTransferPanel";
 import { serverUrlToHttpBase } from "../services/api";
-import { toWsUrl, getSettings } from "../services/storage";
+import { describeWsUrl, getSettings } from "../services/storage";
 
 interface MyDevice {
   id: string;
@@ -79,7 +79,9 @@ export function MainView() {
   const [cat, setCat] = useState<DeviceCategory>("mine");
   const [search, setSearch] = useState("");
   const auth = getAuth();
-  const httpBase = auth ? serverUrlToHttpBase(toWsUrl(getSettings().serverUrl)) : "";
+  // 地址连不了时（格式非法 / 公网地址写了明文 ws://）httpBase 为空，
+  // 下面的请求会自然失败，而不是拿一个空 base 去打相对路径。
+  const httpBase = auth ? serverUrlToHttpBase(describeWsUrl(getSettings().serverUrl).url) : "";
 
   // 拉我的设备 + 在线设备
   useEffect(() => {
@@ -209,7 +211,7 @@ export function MainView() {
       onOk: async () => {
         try {
           // 尽量调用后端 logout(让 refresh token 失效),但失败也不阻塞
-          const base = serverUrlToHttpBase(toWsUrl(getSettings().serverUrl));
+          const base = serverUrlToHttpBase(describeWsUrl(getSettings().serverUrl).url);
           await api.logout(base).catch(() => {});
         } catch {
           /* ignore */

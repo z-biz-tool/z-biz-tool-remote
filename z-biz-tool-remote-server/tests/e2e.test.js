@@ -187,12 +187,23 @@ async function run() {
     const hostReg = await host.waitFor((m) => m.type === "REGISTER_SUCCESS");
     logLine(`[host] <= ${shortJson(hostReg)}`);
     assert(hostReg.deviceId === "host-A", "host deviceId");
-    assert(typeof hostReg.encryptionKey === "string", "host encryptionKey");
+    // 守卫（S1-B09/B10）：服务端**不再下发** encryptionKey。
+    // 原实现回落到写死的 "test-key" —— 那等于全网共用一把写在公开源码里的"锁"；
+    // 改成随机值也只是换了个假象：留着这个字段就会让用户以为链路是加密的，
+    // 而它其实什么都不是（帧与键鼠事件都是明文 JSON）。真正的防线是 TLS。
+    assert(
+      !("encryptionKey" in hostReg),
+      "REGISTER_SUCCESS 不得再带 encryptionKey（它不参与任何加解密）"
+    );
 
     ctrl.send({ type: "REGISTER", deviceId: "ctrl-B" });
     const ctrlReg = await ctrl.waitFor((m) => m.type === "REGISTER_SUCCESS");
     logLine(`[ctrl] <= ${shortJson(ctrlReg)}`);
     assert(ctrlReg.deviceId === "ctrl-B", "ctrl deviceId");
+    assert(
+      !("encryptionKey" in ctrlReg),
+      "REGISTER_SUCCESS 不得再带 encryptionKey"
+    );
 
     const hostId = hostReg.deviceId;
     const ctrlId = ctrlReg.deviceId;
