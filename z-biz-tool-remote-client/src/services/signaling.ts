@@ -25,6 +25,20 @@ export interface SocketState {
 
 export type RelaySupport = "unknown" | "supported" | "unsupported";
 
+/**
+ * 账号令牌怎么带给服务端。
+ *
+ *  - `frame`（默认）：连接建立后**首帧**发 `{"type":"AUTH","token":"…"}`。
+ *    URL 里**没有**任何凭据 —— 查询串会进浏览器历史、反代 access_log、抓包与截图。
+ *  - `query`：老行为，把令牌拼进 `?token=`。只为兼容老服务端保留。
+ *
+ * 灰度顺序（服务端与客户端必须同版本发布，否则老客户端连不上）：
+ *   1) 服务端先上 `WS_TOKEN_TRANSPORT=both`（新老客户端都收）；
+ *   2) 客户端发新版（默认 frame）；
+ *   3) 服务端切 `WS_TOKEN_TRANSPORT=frame`（查询串彻底不再被读取）。
+ */
+export type TokenTransport = "frame" | "query";
+
 interface SignalingEvents {
   open: void;
   close: void;
@@ -69,6 +83,13 @@ const MAX_FAST_FAILURES = 3;
 export class SignalingClient extends Emitter {
   private ws: WebSocket | null = null;
   private url: string | null = null;
+  /** 用户给的原始地址（不含任何凭据） */
+  private rawUrl: string | null = null;
+  /** 账号令牌：frame 模式走首帧，query 模式走 URL */
+  private token: string | null = null;
+  private tokenTransport: TokenTransport = "frame";
+  /** 当前这条 socket 用的令牌（用于「令牌变了就要重建连接」的判定） */
+  private socketToken: string | null = null;
   private deviceName: string | null = null;
   private deviceId: string | null = null;
 
@@ -92,10 +113,23 @@ export class SignalingClient extends Emitter {
   private visibilityBound = false;
   private relaySupport: RelaySupport = "unknown";
 
-  // opts: { url, deviceId, deviceName?, token? }
-  connect(opts: { url: string; deviceId: string; deviceName?: string; token?: string }) {
-    const url = buildWsUrl(opts.url, opts.token);
-    if (this.ws && this.url === url && this.phase !== "failed") return;
+  // opts: { url, deviceId, deviceName?, token?, tokenTransport? }
+  connect(opts: {
+    url: string;
+    deviceId: string;
+    deviceName?: string;
+    token?: string;
+    tokenTransport?: TokenTransport;
+  }) {
+    this.rawUrl = opts.url;
+    this.token = opts.token ?? null;
+    this.tokenTransport = opts.tokenTransport ?? "frame";
+    const url = this.buildUrl();
+    // 令牌不再进 URL ⇒ 「URL 相同就复用连接」这条判据里**必须**再带上令牌：
+    // 以前令牌变了 ⇒ URL 变了 ⇒ 连接会重建；现在 URL 不变，令牌变了也得重建，
+    // 否则会拿旧令牌去续连。
+    const tokenChanged = (opts.token ?? null) !== this.socketToken;
+    if (this.ws && this.url === url && !tokenChanged && this.phase !== "failed") return;
     this.disconnect();
     this.url = url;
     this.deviceId = opts.deviceId;
@@ -126,8 +160,14 @@ export class SignalingClient extends Emitter {
     });
   }
 
+  /** 实际要连的 URL：frame 模式下**不带**任何凭据。 */
+  private buildUrl(): string {
+    return buildWsUrl(this.rawUrl ?? "", this.token, this.tokenTransport);
+  }
+
   private openSocket() {
     if (!this.url || !this.deviceId) return;
+    this.socketToken = this.token;
     this.cancelPendingReconnectOnly();
     this.connectStartedAt = Date.now();
     this.everOpened = false;
@@ -147,6 +187,15 @@ export class SignalingClient extends Emitter {
       this.fastFailures = 0;
       this.attempt = 0;
       this.setPhase("online");
+      // 令牌走**首帧**（默认）：URL 查询串里不再有任何凭据。
+      //
+      // 顺序：先 AUTH 再 REGISTER。服务端按到达顺序处理帧 ⇒ 收到 AUTH 就完成鉴权，
+      // 紧随其后的 REGISTER 才不会被判成「鉴权前发消息」而拒掉。
+      // 不用等 AUTH_OK 回包：等它会在「服务端是老版本（不认 AUTH 帧）」时卡死，
+      // 而那种组合本来就该由服务端侧的 both 模式兜住。
+      if (this.tokenTransport === "frame" && this.token) {
+        this.send({ type: "AUTH", token: this.token });
+      }
       this.send({
         type: "REGISTER",
         deviceId: this.deviceId!,
@@ -205,6 +254,11 @@ export class SignalingClient extends Emitter {
     switch (data.type) {
       case "PING":
         this.send({ type: "PONG" });
+        break;
+      case "AUTH_OK":
+        // 服务端确认首帧鉴权通过。**不阻塞**后续流程：AUTH 与 REGISTER 是连着发的，
+        // 服务端按到达顺序处理 ⇒ 鉴权在 REGISTER 之前就已经完成。
+        // 这里什么都不做：状态机不依赖这个回包（否则老服务端没有 AUTH_OK 时会卡死）。
         break;
       case "PONG":
         this.rtt.noteReceived(Date.now());
@@ -533,20 +587,34 @@ export class SignalingClient extends Emitter {
   }
 }
 
-// Build a ws URL with optional ?token=… query.
-// If a ?token= already exists in the URL we keep it (legacy).
-function buildWsUrl(rawUrl: string, token: string | undefined | null): string {
-  if (!token) return rawUrl;
-  // Don't double-append
+// 拼出要连的 ws URL。
+//
+// frame（默认）：**绝不**把令牌放进 URL —— 连历史遗留的 `?token=` 也一并摘掉。
+//   查询串会进浏览器历史、反代/CDN access_log、抓包与截图，账号令牌不该出现在那里；
+//   令牌改由首帧 `{"type":"AUTH","token":"…"}` 携带。
+// query（老行为）：把令牌拼进 `?token=`，只为兼容老服务端保留。
+function buildWsUrl(
+  rawUrl: string,
+  token: string | undefined | null,
+  transport: TokenTransport = "frame"
+): string {
   try {
     const u = new URL(rawUrl);
-    if (u.searchParams.has("token")) return rawUrl;
-    u.searchParams.set("token", token);
-    return u.toString();
+    if (transport === "query") {
+      // 老行为：URL 里已经带 token 就原样保留（不重复追加、也不覆盖）
+      if (u.searchParams.has("token")) return rawUrl;
+      if (!token) return rawUrl;
+      u.searchParams.set("token", token);
+      return u.toString();
+    }
+    if (u.searchParams.has("token")) {
+      u.searchParams.delete("token");
+      return u.toString();
+    }
+    return rawUrl;
   } catch {
-    // Fallback: best-effort string append
-    if (rawUrl.includes("token=")) return rawUrl;
-    return rawUrl + (rawUrl.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);
+    // 地址不合法到 new URL 都过不去：原样交给上层报错。
+    return rawUrl;
   }
 }
 

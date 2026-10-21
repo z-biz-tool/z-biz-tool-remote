@@ -20,6 +20,13 @@
 //   DATA_FILE=/var/lib/zbt/data.json node src/server.js
 //   TLS_KEY_PATH=key.pem TLS_CERT_PATH=cert.pem node src/server.js   # WSS
 //
+// 令牌怎么带（WS_TOKEN_TRANSPORT，默认 frame）：
+//   frame —— 令牌放在**首帧** {"type":"AUTH","token":"..."}；URL 查询串里**没有**凭据。
+//            浏览器 WS 不能自定义 header，而查询串会进浏览器历史 / 反代 access_log /
+//            抓包 / 截图 —— 账号令牌不该出现在那里。
+//   query —— 老行为：ws://host/?token=...（**仅**为兼容老客户端保留，默认关闭）
+//   both  —— 两种都收（灰度期用：先发新版客户端，再切服务端）
+//
 // All env vars also in .env.example.
 
 import { createServer as createHttpServer } from "node:http";
@@ -39,6 +46,15 @@ const AUTH_TOKEN = process.env.AUTH_TOKEN || "";
 const TLS_KEY_PATH = process.env.TLS_KEY_PATH || "";
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH || "";
 const SESSIONS_FILE = process.env.SESSIONS_FILE || "";
+// 令牌承载方式：frame（默认，令牌走首帧）/ query（老行为）/ both（灰度期）
+const WS_TOKEN_TRANSPORT = (process.env.WS_TOKEN_TRANSPORT || "frame").toLowerCase();
+// 首帧鉴权的等待上限：超过就断开，避免未鉴权连接长期占资源
+const WS_AUTH_TIMEOUT_MS = Number(process.env.WS_AUTH_TIMEOUT_MS || 5000);
+
+if (!["frame", "query", "both"].includes(WS_TOKEN_TRANSPORT)) {
+  logger.error("WS_TOKEN_TRANSPORT 非法，只能是 frame | query | both", { value: WS_TOKEN_TRANSPORT });
+  process.exit(1);
+}
 
 if (!AUTH_TOKEN) {
   logger.warn("AUTH_TOKEN is empty — server is in user-account mode (no shared-token fallback). Users must register / login first.");
@@ -175,32 +191,67 @@ function tokenMatches(provided) {
   return timingSafeEqual(a, b);
 }
 
-// Extract token from URL query string or Authorization header.
-// URL like ws://host:port/?token=abc → "abc"
-// Header "Authorization: Bearer abc" → "abc"
-function extractToken(req) {
+// 令牌从哪里取：
+//   - URL 查询串 ?token=… —— **只有 WS_TOKEN_TRANSPORT=query|both 的兼容模式才读**。
+//     查询串会进浏览器历史、反代/CDN access_log、抓包与截图，是凭据最不该待的地方。
+//   - Authorization: Bearer … —— 非浏览器客户端（node ws / curl / 脚本）用这个；
+//     它不在 URL 里，也不进 access_log（除非反代专门记这个头）。
+//   - 首帧 {"type":"AUTH","token":"…"} —— 默认（frame）路径，见 handleAuthFrame。
+function extractQueryToken(req) {
   try {
     const url = new URL(req.url || "/", "http://localhost");
-    const q = url.searchParams.get("token");
-    if (q) return q;
+    return url.searchParams.get("token") || "";
   } catch {
     /* ignore malformed URL */
   }
+  return "";
+}
+
+function extractHeaderToken(req) {
   const h = req.headers["authorization"];
   if (h && h.startsWith("Bearer ")) return h.slice(7).trim();
   return "";
 }
 
+/** 日志里不能出现明文令牌：查询串里的 token= 全部打码。 */
+function redactUrl(rawUrl) {
+  if (!rawUrl) return rawUrl;
+  return rawUrl.replace(/([?&]token=)[^&]*/gi, "$1***");
+}
+
 // ---------- HTTP / WS servers ----------
 
-const httpServer = TLS_KEY_PATH && TLS_CERT_PATH
-  ? createHttpsServer(
-      {
-        key: readFileSync(TLS_KEY_PATH),
-        cert: readFileSync(TLS_CERT_PATH),
-      },
-      handleHttp
-    )
+// TLS 材料必须在**启动时**校验：原来「只配了 key 没配 cert」会静默回落成明文 HTTP，
+// 现场表现就是 ssl.wrap_socket 报 WRONG_VERSION_NUMBER —— 看起来像「证书坏了」，
+// 实际是**根本没启用 TLS**。宁可启动失败并说清楚，也不要悄悄降级成明文。
+function loadTlsOptions() {
+  if (!TLS_KEY_PATH && !TLS_CERT_PATH) return null;
+  if (!TLS_KEY_PATH || !TLS_CERT_PATH) {
+    logger.error("TLS 配置不完整：TLS_KEY_PATH 与 TLS_CERT_PATH 必须**同时**提供", {
+      hasKey: Boolean(TLS_KEY_PATH),
+      hasCert: Boolean(TLS_CERT_PATH),
+    });
+    process.exit(1);
+  }
+  for (const p of [TLS_KEY_PATH, TLS_CERT_PATH]) {
+    if (!existsSync(p)) {
+      logger.error("TLS 文件不存在（容器里要挂进容器的路径，不是宿主路径）", { path: p });
+      process.exit(1);
+    }
+  }
+  try {
+    return { key: readFileSync(TLS_KEY_PATH), cert: readFileSync(TLS_CERT_PATH) };
+  } catch (e) {
+    logger.error("TLS 材料读取失败", { err: String(e) });
+    process.exit(1);
+  }
+}
+
+const tlsOptions = loadTlsOptions();
+const TLS_ENABLED = Boolean(tlsOptions);
+
+const httpServer = tlsOptions
+  ? createHttpsServer(tlsOptions, handleHttp)
   : createHttpServer(handleHttp);
 
 function setCors(res) {
@@ -294,10 +345,11 @@ function handleHttp(req, res) {
 
   // Default: tell callers this is a WebSocket-only server
   if (req.url === "/" || req.url === "/index.html") {
+    const wsProto = TLS_ENABLED ? "wss" : "ws";
     res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
     res.end(
       "z-biz-tool-remote-server\nHTTP API: /api/auth/{register,login,refresh,logout}, /api/me, /api/devices/:id\n" +
-        "WebSocket signaling at ws://" + req.headers.host + "/\n"
+        "WebSocket signaling at " + wsProto + "://" + req.headers.host + "/\n"
     );
     return;
   }
@@ -309,39 +361,93 @@ function handleHttp(req, res) {
 const wss = new WebSocketServer({ noServer: true });
 
 httpServer.on("upgrade", (req, socket, head) => {
-  // 1. Auth check: prefer user session token, fall back to legacy shared AUTH_TOKEN.
-  const provided = extractToken(req);
+  // 1. Auth check.
+  //
+  //    默认（WS_TOKEN_TRANSPORT=frame）：**不读 URL 查询串**，握手不做鉴权，
+  //    令牌由首帧 AUTH 携带（浏览器 WS 不能自定义 header）。握手放行意味着
+  //    存在一个「未鉴权」的短暂窗口 —— 用 WS_AUTH_TIMEOUT_MS 兜底，超时即断。
+  //
+  //    query / both（兼容模式）：读 ?token= 或 Authorization 头，握手即鉴权。
+  //      both 且**没带**令牌时 → 放行握手，改由首帧 AUTH 鉴权（灰度期新客户端走这条）。
+  const queryToken = WS_TOKEN_TRANSPORT === "frame" ? "" : extractQueryToken(req);
+  const headerToken = extractHeaderToken(req);
+  const provided = queryToken || headerToken;
   let user = null;
+  let authorized = false;
   if (provided) {
     user = auth.tokenToUser(provided);
+    if (user) authorized = true;
+    else if (tokenMatches(provided)) authorized = true; // 共享 AUTH_TOKEN 模式
   }
-  const sharedOk = user == null && tokenMatches(provided);
-  if (!user && !sharedOk) {
+  // 带了一个**错的**令牌 → 立刻 401（别让人挂着等首帧）；
+  // query 模式必须握手即鉴权 → 没带令牌也 401（老行为）。
+  const badToken = Boolean(provided) && !authorized;
+  const handshakeMustAuth = WS_TOKEN_TRANSPORT === "query";
+  if (badToken || (handshakeMustAuth && !authorized)) {
     logger.warn("ws upgrade rejected: bad/missing token", {
       remote: req.socket.remoteAddress,
-      url: req.url,
+      url: redactUrl(req.url),
     });
     socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
     socket.destroy();
     return;
   }
 
-  // 2. Hand off to ws, attach user to request
+  // 2. Hand off to ws, attach auth context to request
   wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit("connection", ws, req, user);
+    wss.emit("connection", ws, req, { user, authorized });
   });
 });
 
-wss.on("connection", (ws, req, user) => {
+wss.on("connection", (ws, req, ctx) => {
   totalConnections++;
   let deviceId = null;
   const remoteAddr = req.socket.remoteAddress;
+  // user / authorized 在首帧鉴权成功后会被改写 —— 所以必须是 let。
+  let user = ctx?.user ?? null;
+  let authorized = ctx?.authorized === true;
 
   logger.info("ws connected", {
     remote: remoteAddr,
     userId: user ? user.id : null,
+    authenticated: authorized,
     online: clients.size + 1,
   });
+
+  // 未鉴权连接（frame 模式首帧还没到）的兜底：超时即断，不给未鉴权连接长期占资源。
+  let authTimer = null;
+  if (!authorized) {
+    authTimer = setTimeout(() => {
+      if (authorized) return;
+      logger.warn("ws auth timeout (no AUTH frame)", { remote: remoteAddr });
+      try { ws.close(4401, "auth timeout"); } catch {}
+    }, WS_AUTH_TIMEOUT_MS);
+  }
+
+  /** 首帧鉴权：{"type":"AUTH","token":"…"} */
+  function handleAuthFrame(msg) {
+    if (authorized) {
+      // 幂等：已经鉴权过（例如 both 模式握手就过了）就只回一个 AUTH_OK。
+      send(ws, { type: "AUTH_OK", userId: user ? user.id : null, username: user ? user.username : null });
+      return;
+    }
+    const provided = typeof msg.token === "string" ? msg.token : "";
+    const u = provided ? auth.tokenToUser(provided) : null;
+    if (!u && !tokenMatches(provided)) {
+      logger.warn("ws auth frame rejected: bad token", { remote: remoteAddr });
+      send(ws, { type: "ERROR", code: "UNAUTHORIZED", message: "令牌无效" });
+      try { ws.close(4401, "unauthorized"); } catch {}
+      return;
+    }
+    authorized = true;
+    user = u;
+    if (authTimer) {
+      clearTimeout(authTimer);
+      authTimer = null;
+    }
+    send(ws, { type: "AUTH_OK", userId: u ? u.id : null, username: u ? u.username : null });
+    logger.info("ws authenticated", { remote: remoteAddr, userId: u ? u.id : null });
+  }
 
   // 30s ping/pong — kill zombie sockets on broken networks
   let alive = true;
@@ -369,10 +475,26 @@ wss.on("connection", (ws, req, user) => {
       return;
     }
     if (!msg || typeof msg !== "object" || typeof msg.type !== "string") return;
+
+    if (msg.type === "AUTH") {
+      handleAuthFrame(msg);
+      return;
+    }
+    // 未鉴权之前只认 AUTH 帧：否则「握手放行 + 首帧鉴权」就等于没有鉴权。
+    if (!authorized) {
+      logger.warn("ws message before auth", { type: msg.type, remote: remoteAddr });
+      send(ws, { type: "ERROR", code: "AUTH_REQUIRED", message: "请先发送 AUTH 帧" });
+      try { ws.close(4401, "auth required"); } catch {}
+      return;
+    }
     handleMessage(ws, msg, () => deviceId, (id) => (deviceId = id), remoteAddr, user);
   });
 
   ws.on("close", () => {
+    if (authTimer) {
+      clearTimeout(authTimer);
+      authTimer = null;
+    }
     clearInterval(heartbeat);
     if (deviceId && clients.get(deviceId) === ws) {
       clients.delete(deviceId);
@@ -438,13 +560,17 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
         // ⚠️ 这里**曾经**有一个 `encryptionKey` 字段，现在**删掉了**（台账 S1-B09/B10）。
         // 它从来就不参与任何加解密：屏幕帧与键鼠事件都走
         // `ws.send(JSON.stringify(msg))` 的明文 JSON。
-        // 没有 TLS 的时候，带内加密是自欺欺人 —— 账号令牌也在同一条链路的 URL
-        // 查询串里，窃听者连密钥一起看得到。**真正的防线是 WSS**
+        // 没有 TLS 的时候，带内加密是自欺欺人 —— 屏幕帧与键鼠事件都是明文 JSON，
+        // 窃听者直接看得见。**真正的防线是 WSS**
         // （本服务端支持 TLS_KEY_PATH / TLS_CERT_PATH，见文件头）。
+        // 账号令牌已不再走 URL 查询串（默认首帧 AUTH，见 WS_TOKEN_TRANSPORT）——
+        // 但首帧本身在明文链路上同样裸奔，**所以 WSS 仍然是必须的**。
         //
         // 为什么是「删掉」而不是「换成一个随机值」：
         // 留着一个叫 encryptionKey 的字段，就会让用户以为链路是加密的 ——
         // 而它其实什么都不是。**给用户「已加密」的错觉，比不加密更危险。**
+        // 真正的防线是 WSS（本服务端支持 TLS_KEY_PATH / TLS_CERT_PATH，见文件头）。
+        // 账号令牌现在也**不再**走 URL 查询串了（默认首帧 AUTH，见 WS_TOKEN_TRANSPORT）。
         // Tell the client whether it's bound to a user account.
         userId: user ? user.id : null,
         username: user ? user.username : null,
@@ -664,11 +790,12 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
 // ---------- lifecycle ----------
 
 httpServer.listen(PORT, HOST, () => {
-  const proto = TLS_KEY_PATH && TLS_CERT_PATH ? "wss" : "ws";
+  const proto = TLS_ENABLED ? "wss" : "ws";
   logger.info("server listening", {
     addr: `${proto}://${HOST}:${PORT}`,
     auth: AUTH_TOKEN ? "shared-token (legacy)" : "user-account",
-    tls: TLS_KEY_PATH && TLS_CERT_PATH ? "enabled" : "disabled",
+    tls: TLS_ENABLED ? "enabled" : "disabled",
+    tokenTransport: WS_TOKEN_TRANSPORT,
     dataFile: process.env.DATA_FILE || "data.json",
   });
   store.startSweeper(60_000);

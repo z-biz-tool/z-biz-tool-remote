@@ -28,7 +28,7 @@ function shortJson(o) {
   return s.length > 140 ? s.slice(0, 140) + "..." : s;
 }
 
-function makeClient(name, url) {
+function makeClient(name, url, authToken) {
   const ws = new WebSocket(url);
   const inbox = [];
   const waiters = [];
@@ -47,7 +47,11 @@ function makeClient(name, url) {
   });
 
   const ready = new Promise((resolve, reject) => {
-    ws.once("open", () => resolve());
+    // 令牌走**首帧**（默认传输方式）：URL 里不带任何凭据。
+    ws.once("open", () => {
+      if (authToken) ws.send(JSON.stringify({ type: "AUTH", token: authToken }));
+      resolve();
+    });
     ws.once("error", reject);
   });
 
@@ -121,7 +125,8 @@ function assert(cond, msg) {
 async function run() {
   const port = 18080 + Math.floor(Math.random() * 100);
   const authToken = "test-token-" + Math.random().toString(36).slice(2, 14);
-  const url = `ws://127.0.0.1:${port}/?token=${authToken}`;
+  // 默认传输方式（WS_TOKEN_TRANSPORT=frame）：令牌走首帧，**URL 查询串里没有凭据**
+  const url = `ws://127.0.0.1:${port}/`;
 
   logLine(`[test] starting server on :${port}`);
   const child = startServer({
@@ -163,22 +168,57 @@ async function run() {
       logLine(`[test] healthz OK (${JSON.stringify(parsed)})`);
     }
 
-    // 2. Auth gate: bad token must be rejected
+    // 2. Auth gate: a bad token must be rejected.
+    //    默认传输方式是「首帧 AUTH」：查询串里的 token= **不被读取**，
+    //    所以这里必须发一个错的 AUTH 帧，服务端会回 ERROR/UNAUTHORIZED 并断连。
     {
-      const bad = new WebSocket(`ws://127.0.0.1:${port}/?token=wrong`);
+      const bad = new WebSocket(`ws://127.0.0.1:${port}/`);
       const result = await new Promise((resolve) => {
-        bad.on("open", () => resolve({ opened: true }));
-        bad.on("error", (e) => resolve({ opened: false, msg: e.message }));
-        bad.on("unexpected-response", (req, res) => resolve({ opened: false, status: res.statusCode }));
-        setTimeout(() => resolve({ opened: "timeout" }), 2000);
+        const inbox = [];
+        bad.on("message", (raw) => inbox.push(JSON.parse(raw.toString())));
+        bad.on("open", () => {
+          bad.send(JSON.stringify({ type: "AUTH", token: "wrong" }));
+        });
+        bad.on("error", (e) => resolve({ opened: false, msg: e.message, inbox }));
+        bad.on("close", (code) => resolve({ opened: false, closeCode: code, inbox }));
+        setTimeout(() => resolve({ opened: "timeout", inbox }), 3000);
       });
       logLine(`[test] bad-token connect: ${JSON.stringify(result)}`);
       assert(!result.opened, "bad token must not open");
+      assert(
+        result.inbox.some((m) => m.type === "ERROR" && m.code === "UNAUTHORIZED"),
+        "bad token must be answered with ERROR/UNAUTHORIZED"
+      );
+    }
+
+    // 2.1 查询串里的令牌**不被读取**（默认 frame 模式）：带了 ?token= 也一样进不来。
+    {
+      const bad = new WebSocket(`ws://127.0.0.1:${port}/?token=${authToken}`);
+      const result = await new Promise((resolve) => {
+        const inbox = [];
+        bad.on("message", (raw) => inbox.push(JSON.parse(raw.toString())));
+        bad.on("open", () => {
+          // 不发 AUTH 帧：服务端等 WS_AUTH_TIMEOUT_MS 后断开
+          setTimeout(() => resolve({ opened: true, inbox }), 500);
+        });
+        bad.on("close", (code) => resolve({ opened: false, closeCode: code, inbox }));
+        setTimeout(() => resolve({ opened: "timeout", inbox }), 8000);
+      });
+      logLine(`[test] query-token connect (must not authenticate): ${JSON.stringify(result)}`);
+      assert(
+        !result.inbox.some((m) => m.type === "AUTH_OK"),
+        "查询串里的令牌不得被接受（frame 模式）"
+      );
+      assert(
+        !result.inbox.some((m) => m.type === "REGISTER_SUCCESS"),
+        "查询串里的令牌不得让连接进入已鉴权状态"
+      );
+      bad.close();
     }
 
     // 3. Two-client happy path
-    const host = makeClient("host", url);
-    const ctrl = makeClient("ctrl", url);
+    const host = makeClient("host", url, authToken);
+    const ctrl = makeClient("ctrl", url, authToken);
     await Promise.all([host.ready, ctrl.ready]);
     logLine("[test] both connected");
 

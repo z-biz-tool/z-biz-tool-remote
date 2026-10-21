@@ -63,7 +63,8 @@ function del(port, path, token) {
 }
 
 function openWs(port, token) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/?token=${token}`);
+  // 令牌走**首帧**（默认传输方式）：URL 查询串里不再带凭据。
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/`);
   const inbox = [];
   const waiters = [];
   ws.on("message", (raw) => {
@@ -79,7 +80,10 @@ function openWs(port, token) {
     }
   });
   const ready = new Promise((resolve, reject) => {
-    ws.once("open", () => resolve());
+    ws.once("open", () => {
+      if (token) ws.send(JSON.stringify({ type: "AUTH", token }));
+      resolve();
+    });
     ws.once("error", reject);
   });
   return {
@@ -125,7 +129,8 @@ async function main() {
   console.log(`[t] dataFile = ${dataFile}`);
 
   // Start server (no legacy AUTH_TOKEN)
-  const env = { ...process.env, DATA_FILE: dataFile, PORT: String(port) };
+  // REGISTER_RATE_LIMIT=0：这组用例只测账号层，注册闸门由 security-hardening.test.js 单独测
+  const env = { ...process.env, DATA_FILE: dataFile, PORT: String(port), REGISTER_RATE_LIMIT: "0" };
   delete env.AUTH_TOKEN;
   const child = spawn(process.execPath, ["server.js"], {
     env,

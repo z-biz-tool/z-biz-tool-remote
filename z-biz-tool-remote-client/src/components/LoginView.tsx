@@ -29,6 +29,8 @@ export function LoginView() {
   const [autoConnect, setAutoConnect] = useState(settings.autoConnect);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  // 邀请码：服务端开了 INVITE_CODE 时注册必须带上；没开就留空
+  const [inviteCode, setInviteCode] = useState("");
   const [deviceName, setDeviceName] = useState(
     typeof navigator !== "undefined" ? (navigator as any).userAgentData?.platform || navigator.platform || "" : ""
   );
@@ -110,7 +112,7 @@ export function LoginView() {
       const base = api.serverUrlToHttpBase(plan.url);
       const sess =
         mode === "register"
-          ? await api.register(base, username, password)
+          ? await api.register(base, username, password, inviteCode.trim() || undefined)
           : await api.login(base, username, password);
       // Bump this server to the top of the preset list so it shows up first next time
       touchServer(plan.url, username.includes("@") ? undefined : undefined);
@@ -135,7 +137,16 @@ export function LoginView() {
       const status = e?.status;
       const body = e?.body as { error?: string } | undefined;
       const reason = body?.error || e?.message || "unknown";
-      const hint = status === 401 ? "用户名或密码错" : status === 409 ? "用户名已存在" : "";
+      const hint =
+        status === 401
+          ? "用户名或密码错"
+          : status === 409
+            ? "用户名已存在"
+            : status === 403
+              ? "需要邀请码（服务端要求 INVITE_CODE）"
+              : status === 429
+                ? "注册过于频繁，稍后再试"
+                : "";
       message.error(`认证失败 (HTTP ${status ?? "?"}): ${reason}${hint ? " — " + hint : ""}`);
       setConnection("offline");
     } finally {
@@ -227,15 +238,29 @@ export function LoginView() {
             />
           </Form.Item>
           {mode === "register" && (
-            <Form.Item label="本机名称 (可选)">
-              <Input
-                value={deviceName}
-                onChange={(e) => setDeviceName(e.target.value)}
-                placeholder="Alice 的 MacBook"
-                maxLength={64}
-                disabled={connection === "online"}
-              />
-            </Form.Item>
+            <>
+              <Form.Item label="本机名称 (可选)">
+                <Input
+                  value={deviceName}
+                  onChange={(e) => setDeviceName(e.target.value)}
+                  placeholder="Alice 的 MacBook"
+                  maxLength={64}
+                  disabled={connection === "online"}
+                />
+              </Form.Item>
+              <Form.Item
+                label="邀请码 (可选)"
+                extra="服务端配置了 INVITE_CODE 时必须填；没配就留空"
+              >
+                <Input
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                  placeholder="服务端要求邀请码时填写"
+                  autoComplete="off"
+                  disabled={connection === "online"}
+                />
+              </Form.Item>
+            </>
           )}
 
           <Form.Item>

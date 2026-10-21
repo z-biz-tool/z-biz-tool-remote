@@ -31,8 +31,12 @@ ENV HOST=0.0.0.0 \
     NODE_ENV=production
 
 # Tiny healthcheck against /healthz (200 OK, JSON {"ok":true})
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:8080/healthz | grep -q '"ok":true' || exit 1
+# 用 healthcheck.js 而不是 wget：开了 TLS 之后 https://127.0.0.1:8080/healthz 的
+# 证书（certbot 签的）SAN 里没有 127.0.0.1，busybox wget 会因证书校验失败判成
+# 不健康 ⇒ 容器被 restart 策略反复重启。healthcheck.js 只在探针里关掉证书校验，
+# 并且依次尝试 https / http，TLS 开关怎么切都能探到。
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD node healthcheck.js
 
 EXPOSE 8080
 

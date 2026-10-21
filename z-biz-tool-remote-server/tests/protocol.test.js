@@ -20,7 +20,7 @@ function logLine(s) {
   process.stdout.write(s + "\n");
 }
 
-function makeClient(name, url) {
+function makeClient(name, url, authToken) {
   const ws = new WebSocket(url);
   const inbox = [];
   const waiters = [];
@@ -39,7 +39,11 @@ function makeClient(name, url) {
   });
 
   const ready = new Promise((resolve, reject) => {
-    ws.once("open", () => resolve());
+    // 令牌走首帧（默认传输方式），URL 查询串里不带凭据
+    ws.once("open", () => {
+      if (authToken) ws.send(JSON.stringify({ type: "AUTH", token: authToken }));
+      resolve();
+    });
     ws.once("error", reject);
   });
 
@@ -116,7 +120,8 @@ async function expectNoMessage(client, predicate, ms, what) {
 async function main() {
   const port = 18200 + Math.floor(Math.random() * 100);
   const authToken = "proto-token-" + randomUUID().slice(0, 12);
-  const url = `ws://127.0.0.1:${port}/?token=${authToken}`;
+  // 默认传输方式：令牌走首帧，URL 查询串里没有凭据
+  const url = `ws://127.0.0.1:${port}/`;
 
   const dataFile = `/tmp/zbt-proto-${randomUUID()}.json`;
   logLine(`[test] starting server on :${port}`);
@@ -134,8 +139,8 @@ async function main() {
   try {
     // ---------------------------------------------- CONTROL_REJECT
     {
-      const host = makeClient("host", url);
-      const peer = makeClient("peer", url);
+      const host = makeClient("host", url, authToken);
+      const peer = makeClient("peer", url, authToken);
       clients.push(host, peer);
       await Promise.all([host.ready, peer.ready]);
       host.send({ type: "REGISTER", deviceId: "d-host", deviceName: "host" });
@@ -167,7 +172,7 @@ async function main() {
       // 关键断言：拒绝后 peer 再发屏幕帧，host 不该再收到
       //（grantControl 被 revokeControl 撤销；但两人同 session，
       //  所以这里改测「不属于该 session 的第三方」才看得出授权是否真的撤了）
-      const outsider = makeClient("outsider", url);
+      const outsider = makeClient("outsider", url, authToken);
       clients.push(outsider);
       await outsider.ready;
       outsider.send({ type: "REGISTER", deviceId: "d-out" });
@@ -248,8 +253,8 @@ async function main() {
     // 把 revokeControl 整行删掉，本组用例依然全绿（2026-10-04 实测）。
     // 撤权真正起作用的场景是：peer 不在 session 里，授权是唯一通路。
     {
-      const ctrl = makeClient("ctrl2", url);
-      const host2 = makeClient("host2", url);
+      const ctrl = makeClient("ctrl2", url, authToken);
+      const host2 = makeClient("host2", url, authToken);
       clients.push(ctrl, host2);
       await Promise.all([ctrl.ready, host2.ready]);
       ctrl.send({ type: "REGISTER", deviceId: "c2" });

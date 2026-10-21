@@ -104,6 +104,9 @@ export type SignalMessage =
     }
   | { type: "PONG" }
   | { type: "PING" }
+  // 首帧鉴权：令牌**不**走 URL 查询串（查询串会进历史/access_log/抓包/截图）
+  | { type: "AUTH"; token: string }
+  | { type: "AUTH_OK"; userId?: string | null; username?: string | null }
   // 服务端错误：code 用于区分"可重试"与"凭据/权限类终止"
   | { type: "ERROR"; code: string; message?: string }
   | { type: "SERVER_SHUTDOWN"; message?: string }

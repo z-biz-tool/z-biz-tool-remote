@@ -152,14 +152,55 @@ test("connect → open：phase 走 connecting → online，并先发 REGISTER", 
   });
 });
 
-test("token 会被拼进 ws URL；已有 token 参数时不重复追加", () => {
+test("默认：令牌走**首帧**，ws URL 里没有任何凭据", () => {
   withFakeWs(({ client: c, last }) => {
     c.connect({ url: "wss://h/s", deviceId: "d", token: "tk1" });
+    // URL 查询串里不能出现凭据：查询串会进浏览器历史 / 反代 access_log / 抓包 / 截图
+    assert.equal(last().url, "wss://h/s");
+    assert.ok(!last().url.includes("tk1"), "令牌不得出现在 URL 里");
+
+    last().open();
+    const auth = JSON.parse(last().sent[0]);
+    assert.equal(auth.type, "AUTH");
+    assert.equal(auth.token, "tk1");
+    // AUTH 之后紧跟 REGISTER（服务端按到达顺序处理 ⇒ 鉴权先于 REGISTER 完成）
+    const reg = JSON.parse(last().sent[1]);
+    assert.equal(reg.type, "REGISTER");
+    assert.equal(reg.deviceId, "d");
+    c.disconnect();
+  });
+});
+
+test("默认：历史遗留的 ?token= 也要从 URL 里摘掉", () => {
+  withFakeWs(({ client: c, last }) => {
+    c.connect({ url: "wss://h/s?token=old", deviceId: "d", token: "tk2" });
+    assert.equal(last().url, "wss://h/s", "旧令牌不得留在 URL 里");
+    c.disconnect();
+  });
+});
+
+test("兼容模式 query：令牌仍然拼进 ws URL（老服务端灰度期用）", () => {
+  withFakeWs(({ client: c, last }) => {
+    c.connect({ url: "wss://h/s", deviceId: "d", token: "tk1", tokenTransport: "query" });
     assert.equal(last().url, "wss://h/s?token=tk1");
     c.disconnect();
 
-    c.connect({ url: "wss://h/s?token=old", deviceId: "d", token: "tk2" });
+    c.connect({ url: "wss://h/s?token=old", deviceId: "d", token: "tk2", tokenTransport: "query" });
     assert.equal(last().url, "wss://h/s?token=old", "已有 token 就该原样保留");
+    c.disconnect();
+  });
+});
+
+test("令牌变了（URL 不变）也要重建连接 —— 令牌不在 URL 里，判据得自己带上它", () => {
+  withFakeWs(({ client: c, last }) => {
+    c.connect({ url: "wss://h/s", deviceId: "d", token: "tk1" });
+    last().open();
+    const first = last();
+    c.connect({ url: "wss://h/s", deviceId: "d", token: "tk2" });
+    const second = last();
+    assert.notEqual(first, second, "令牌变了必须重建连接（否则拿旧令牌续连）");
+    second.open();
+    assert.equal(JSON.parse(second.sent[0]).token, "tk2", "新连接用新令牌");
     c.disconnect();
   });
 });

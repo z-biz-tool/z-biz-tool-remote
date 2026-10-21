@@ -67,11 +67,12 @@ async function readBody(res: Response): Promise<unknown> {
 export async function register(
   base: string,
   username: string,
-  password: string
+  password: string,
+  inviteCode?: string
 ): Promise<AuthSession> {
   const res = await rawFetch(base, "/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify(inviteCode ? { username, password, inviteCode } : { username, password }),
   });
   if (res.status !== 201) {
     const body = await readBody(res);

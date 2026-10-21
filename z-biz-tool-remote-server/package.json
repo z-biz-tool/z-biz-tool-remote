@@ -7,10 +7,11 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node tests/e2e.test.js && node tests/auth-e2e.test.js && node tests/protocol.test.js",
+    "test": "node tests/e2e.test.js && node tests/auth-e2e.test.js && node tests/protocol.test.js && node tests/security-hardening.test.js",
     "test:e2e": "node tests/e2e.test.js",
     "test:auth": "node tests/auth-e2e.test.js",
-    "test:protocol": "node tests/protocol.test.js"
+    "test:protocol": "node tests/protocol.test.js",
+    "test:hardening": "node tests/security-hardening.test.js"
   },
   "engines": {
     "node": ">=18.0.0"

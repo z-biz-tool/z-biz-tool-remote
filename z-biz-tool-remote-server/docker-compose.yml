@@ -2,6 +2,33 @@
 #
 # Generate a strong token first:
 #   openssl rand -hex 32
+#
+# 常用开关（都写在同目录的 .env 里）：
+#
+#   ① 公网收口（推荐）：把端口只绑到回环，公网再也摸不到这个服务
+#        BIND_ADDR=127.0.0.1
+#      效果同 `ports: 127.0.0.1:8080:8080`，但不用改本文件。
+#
+#   ② 开 WSS（https / wss）：把证书目录挂进容器，并指上证书路径
+#        TLS_CERT_DIR=/etc/letsencrypt/live/<你的域名>
+#        TLS_KEY_PATH=/certs/privkey.pem
+#        TLS_CERT_PATH=/certs/fullchain.pem
+#      证书怎么给：
+#        · 宿主机上已有 certbot 证书 → TLS_CERT_DIR 指到 certbot 的 live 目录
+#          （compose 会以只读方式挂到容器的 /certs）；
+#        · 容器内自签证书 → 放到 ./certs/key.pem 与 ./certs/cert.pem
+#          （TLS_CERT_DIR 默认就是 ./certs）。
+#      证书路径没给全时，服务端**启动即失败**（不再静默回落成明文 ws://）。
+#      开完 TLS 记得让健康检查走 https（healthcheck.js 会自动依次尝试
+#      HEALTHCHECK_URL → https → http，所以不设也能探到）。
+#
+#   ③ 注册端点收口：限流阈值 + 可选邀请码
+#        INVITE_CODE=<邀请码>          # 非空时注册必须带 inviteCode
+#        REGISTER_RATE_LIMIT=5         # 每个 IP 每个窗口的注册尝试次数
+#        REGISTER_RATE_WINDOW_MS=600000
+#
+#   ④ 令牌不进 URL：默认就是首帧携带（frame）。灰度期可设 both 以兼容老客户端。
+#        WS_TOKEN_TRANSPORT=frame|query|both
 
 services:
   signaling:
@@ -10,25 +37,37 @@ services:
     container_name: z-biz-signaling
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # BIND_ADDR=127.0.0.1 ⇒ 只绑回环，公网不可达（收口 8080 暴露面用这一条）
+      - "${BIND_ADDR:-0.0.0.0}:8080:8080"
     environment:
       HOST: "0.0.0.0"
       PORT: "8080"
       LOG_LEVEL: "info"
       # Set a real token in .env or via -e AUTH_TOKEN=$(openssl rand -hex 32)
       AUTH_TOKEN: "${AUTH_TOKEN:?AUTH_TOKEN env var is required (run: openssl rand -hex 32)}"
-      # Optional: enable WSS by mounting certs
-      # TLS_KEY_PATH: "/certs/key.pem"
-      # TLS_CERT_PATH: "/certs/cert.pem"
+      # WSS 开关：默认关（空 = 明文 ws://）。开了就把 TLS_CERT_DIR 指到证书目录。
+      TLS_KEY_PATH: "${TLS_KEY_PATH:-}"
+      TLS_CERT_PATH: "${TLS_CERT_PATH:-}"
+      # 令牌承载方式：frame=首帧携带（默认，URL 里没有凭据）/ query=老行为 / both=灰度
+      WS_TOKEN_TRANSPORT: "${WS_TOKEN_TRANSPORT:-frame}"
+      WS_AUTH_TIMEOUT_MS: "${WS_AUTH_TIMEOUT_MS:-5000}"
+      # 注册端点闸门：限流 + 可选邀请码
+      INVITE_CODE: "${INVITE_CODE:-}"
+      REGISTER_RATE_LIMIT: "${REGISTER_RATE_LIMIT:-5}"
+      REGISTER_RATE_WINDOW_MS: "${REGISTER_RATE_WINDOW_MS:-600000}"
+      # 健康检查地址（可留空：healthcheck.js 会自动尝试 https 再 http）
+      HEALTHCHECK_URL: "${HEALTHCHECK_URL:-}"
     volumes:
       # Optional: persist session snapshots for debugging
       - ./data:/app/data
-      # Optional: mount certs for WSS
-      # - ./certs:/certs:ro
+      # 证书目录（只读）：默认 ./certs，可用 TLS_CERT_DIR 指到 certbot 的 live 目录
+      - "${TLS_CERT_DIR:-./certs}:/certs:ro"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz | grep -q '\"ok\":true'"]
+      # 不用 wget：TLS 开启后 https + 自签/非 127.0.0.1 SAN 的证书会被 busybox wget
+      # 判成证书错误 ⇒ 容器被反复重启。healthcheck.js 只在探针里关掉证书校验。
+      test: ["CMD", "node", "healthcheck.js"]
       interval: 30s
-      timeout: 3s
+      timeout: 5s
       retries: 3
       start_period: 5s
     logging:

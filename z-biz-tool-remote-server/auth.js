@@ -5,6 +5,8 @@
 //   - access + refresh token generation
 //   - HTTP route handlers for /api/auth/* and /api/me, /api/devices/:id
 //   - WS upgrade token validation (replaces legacy AUTH_TOKEN env)
+//   - **registration gate**: per-IP rate limit + optional invite code
+//     (自助注册曾经完全免鉴权、无限速 ⇒ 公网上可被无限灌号)
 //
 // Tokens are random 32-byte hex strings. Access token: 1h, refresh: 30d.
 // Storage is delegated to storage.js (JSON file).
@@ -15,6 +17,74 @@ import * as store from "./storage.js";
 
 const ACCESS_TTL_MS = 60 * 60 * 1000; // 1 hour
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// ---------- registration gate ----------
+//
+// 为什么注册端点必须有闸门：它曾经**完全免鉴权、无限速** —— 公网可达时
+// 任何人都能自助灌账号（实测：连打 12 次全是 400 参数校验错，0 次 429/403）。
+// 现在两道闸门，阈值全部走环境变量：
+//
+//   REGISTER_RATE_LIMIT     每个 IP 在一个窗口内允许的注册尝试次数（默认 5，0 = 关闭）
+//   REGISTER_RATE_WINDOW_MS 窗口长度（默认 10 分钟）
+//   INVITE_CODE             非空时，注册必须带上匹配的邀请码（默认空 = 不启用）
+//
+// 注意「限流必须排在参数校验**之前**」：否则攻击者一直用非法 body 打，
+// 闸门永远数不到有效请求 —— 那正是原来「12 次全是 400」的原因。
+const REGISTER_RATE_LIMIT = Number(process.env.REGISTER_RATE_LIMIT ?? 5);
+const REGISTER_RATE_WINDOW_MS = Number(process.env.REGISTER_RATE_WINDOW_MS || 600_000);
+const INVITE_CODE = process.env.INVITE_CODE || "";
+
+/** ip -> { count, resetAt }（固定窗口计数器，进程内存态，重启即清空） */
+const registerBuckets = new Map();
+
+/** 取调用方 IP；取不到就归到 unknown（宁可共享一个桶，也不要绕过限流）。 */
+export function clientIp(req) {
+  const raw = req?.socket?.remoteAddress || req?.connection?.remoteAddress || "";
+  // ::ffff:127.0.0.1 → 127.0.0.1
+  return String(raw).replace(/^::ffff:/, "") || "unknown";
+}
+
+/**
+ * 记一次注册尝试并判断是否超限。
+ * @returns {{allowed: boolean, remaining: number, retryAfterMs: number}}
+ */
+export function takeRegisterSlot(ip, now = Date.now()) {
+  if (!Number.isFinite(REGISTER_RATE_LIMIT) || REGISTER_RATE_LIMIT <= 0) {
+    return { allowed: true, remaining: Number.MAX_SAFE_INTEGER, retryAfterMs: 0 };
+  }
+  let bucket = registerBuckets.get(ip);
+  if (!bucket || now >= bucket.resetAt) {
+    bucket = { count: 0, resetAt: now + REGISTER_RATE_WINDOW_MS };
+    registerBuckets.set(ip, bucket);
+  }
+  bucket.count += 1;
+  // 桶太多时顺手清掉过期的，免得长期运行把 map 撑大
+  if (registerBuckets.size > 4096) {
+    for (const [k, v] of registerBuckets) {
+      if (now >= v.resetAt) registerBuckets.delete(k);
+    }
+  }
+  const allowed = bucket.count <= REGISTER_RATE_LIMIT;
+  return {
+    allowed,
+    remaining: Math.max(0, REGISTER_RATE_LIMIT - bucket.count),
+    retryAfterMs: Math.max(0, bucket.resetAt - now),
+  };
+}
+
+/** 邀请码比对（常量时间，避免逐字符比较泄露前缀）。未启用时恒为真。 */
+export function inviteCodeMatches(provided) {
+  if (!INVITE_CODE) return true;
+  if (typeof provided !== "string" || !provided) return false;
+  const a = Buffer.from(INVITE_CODE, "utf8");
+  const b = Buffer.from(provided, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+export function registrationGateEnabled() {
+  return { inviteCode: Boolean(INVITE_CODE), rateLimit: REGISTER_RATE_LIMIT };
+}
 
 // ---------- crypto ----------
 
@@ -119,13 +189,41 @@ function requireAuth(req, res) {
 }
 
 // POST /api/auth/register
+//
+// 闸门顺序（**别改**）：
+//   1) 按 IP 限流 —— 必须排在参数校验之前，否则非法 body 就能无限打进来；
+//   2) 邀请码 —— 启用 INVITE_CODE 时必须带对的 inviteCode；
+//   3) 参数校验 —— 最后才是 username / password 的形状。
 export async function handleRegister(req, res) {
+  const ip = clientIp(req);
+
+  // 1) 限流
+  const slot = takeRegisterSlot(ip);
+  res.setHeader("X-RateLimit-Limit", String(Number.isFinite(REGISTER_RATE_LIMIT) ? REGISTER_RATE_LIMIT : 0));
+  res.setHeader(
+    "X-RateLimit-Remaining",
+    String(Number.isFinite(slot.remaining) ? slot.remaining : 0)
+  );
+  if (!slot.allowed) {
+    res.setHeader("Retry-After", String(Math.max(1, Math.ceil(slot.retryAfterMs / 1000))));
+    logger.warn("register rate limited", { ip, limit: REGISTER_RATE_LIMIT });
+    return send(res, 429, { error: "too many registration attempts" });
+  }
+
   let body;
   try {
     body = await readJson(req);
   } catch {
     return send(res, 400, { error: "invalid json" });
   }
+
+  // 2) 邀请码
+  if (!inviteCodeMatches(body.inviteCode)) {
+    logger.warn("register rejected: invalid invite code", { ip });
+    return send(res, 403, { error: "invite code required" });
+  }
+
+  // 3) 参数校验
   const { username, password } = body;
   if (
     typeof username !== "string" ||
