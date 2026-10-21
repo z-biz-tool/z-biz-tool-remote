@@ -26,7 +26,16 @@ xcap = "0.9.8"
 enigo = "0.3"
 # 能力层：帧的等比缩放 + RGBA→RGB 降通道 + JPEG/base64 编码（capture.rs 唯一编码路径）
 # image/base64 两个直接依赖已随之清零：缩放与编码都在 cap-img 内，本仓只传 xcap 采集到的像素
-cap-img = "0.2.0"
+#
+# 2026-10-21 由 0.2.0 升到 0.3.0：cap-img 0.3.0 已发到 crates.io，
+# 而 caret `^0.2.0` **永远不会**解析到 0.3.0（0.x 语义下 minor 即 breaking）。
+#
+# 依据（源码级核对）：把 crates.io 上的 0.2.0 与 0.3.0 逐函数比对、去空白
+# 归一化后，本仓用到的 encode_frame_jpeg **0 字符差异** ⇒ 本次升级零行为变化。
+# 0.3.0 的三处修复（crop 坐标溢出 / EXIF 越界切片 / 名字说谎）在本仓**不可达**。
+#
+# 升级的收益：家族四个消费方停在同一个能力层版本上。
+cap-img = "0.3.0"
 
 [profile.release]
 panic = "abort"
