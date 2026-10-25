@@ -38,7 +38,9 @@ services:
     restart: unless-stopped
     ports:
       # BIND_ADDR=127.0.0.1 ⇒ 只绑回环，公网不可达（收口 8080 暴露面用这一条）
-      - "${BIND_ADDR:-0.0.0.0}:8080:8080"
+      # HTTPS_PORT=443 ⇒ 把容器里的 TLS 服务发布到 443（安全组只放 443 时用这一条；
+      #   容器内始终听 8080，TLS 由服务端自己做，发布面换端口即可）
+      - "${BIND_ADDR:-0.0.0.0}:${HTTPS_PORT:-8080}:8080"
     environment:
       HOST: "0.0.0.0"
       PORT: "8080"
