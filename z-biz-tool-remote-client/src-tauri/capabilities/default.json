@@ -20,6 +20,8 @@
     "dialog:allow-ask",
     "dialog:allow-confirm",
     "fs:default",
-    "shell:default"
+    "shell:default",
+    "updater:default",
+    "process:default"
   ]
 }
