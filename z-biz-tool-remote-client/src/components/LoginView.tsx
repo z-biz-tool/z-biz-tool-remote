@@ -166,11 +166,31 @@ export function LoginView() {
   };
 
   return (
-    <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <Card style={{ width: 480 }} title={<Space><ApiOutlined /><span>{t("login.title")}</span></Space>}>
+    // 900x600 的窗口下登录卡片（尤其注册模式）比可视区高：只给 overflow:hidden
+    // 的居中容器会把顶部地址栏和底部主按钮一起裁成不可达。这里让容器可纵向滚动，
+    // 并用 auto 外边距做"够高才居中、不够高就贴顶可滚"的安全居中。
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        overflowY: "auto",
+        display: "flex",
+        flexDirection: "column",
+        padding: "16px 16px 24px",
+      }}
+    >
+      <Card
+        style={{ width: 480, maxWidth: "100%", margin: "auto" }}
+        title={<Space><ApiOutlined /><span>{t("login.title")}</span></Space>}
+      >
         <Form layout="vertical" onSubmitCapture={onSubmit}>
-          <Form.Item label={t("login.server")} extra="下拉选择历史服务器,或直接输入新地址 (如 signaling.example.com:8443 或 192.168.1.10:8080)">
+          <Form.Item
+            label={t("login.server")}
+            htmlFor="server-url"
+            extra="下拉选择历史服务器,或直接输入新地址 (如 signaling.example.com:8443 或 192.168.1.10:8080)"
+          >
             <AutoComplete
+              id="server-url"
               value={serverUrl}
               onChange={(v) => setServerUrl(v)}
               options={autoCompleteOptions}
@@ -190,14 +210,24 @@ export function LoginView() {
               与真实连接不一致的选项（勾了却不生效，比不显示更糟）。 */}
           <Form.Item label="传输方式">
             <Alert
-              type={transport.error ? "error" : transport.secure ? "success" : "warning"}
+              type={
+                !serverUrl.trim()
+                  ? "info"
+                  : transport.error
+                    ? "error"
+                    : transport.secure
+                      ? "success"
+                      : "warning"
+              }
               showIcon
-              message={
-                transport.error
-                  ? transport.error
-                  : transport.secure
-                    ? `将使用 TLS：${transport.url}（链路内容加密）`
-                    : `将使用明文：${transport.url} —— 屏幕画面与键鼠事件在链路上是明文，仅限本机 / 受信任内网`
+              title={
+                !serverUrl.trim()
+                  ? "填写服务器地址后，这里会显示实际使用的连接方式（TLS / 明文）"
+                  : transport.error
+                    ? transport.error
+                    : transport.secure
+                      ? `将使用 TLS：${transport.url}（链路内容加密）`
+                      : `将使用明文：${transport.url} —— 屏幕画面与键鼠事件在链路上是明文，仅限本机 / 受信任内网`
               }
             />
           </Form.Item>

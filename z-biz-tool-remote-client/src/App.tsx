@@ -16,6 +16,7 @@ import {
   addTrusted,
   getAuth,
   getDeviceId,
+  getSettings,
   hydrateStorage,
   isTrusted,
   persistNow,
@@ -42,6 +43,9 @@ export default function App() {
   const [hydrated, setHydrated] = useState(false);
   const autoRestoreTried = useRef(false);
   const grantedPeers = useRef(new Set<string>());
+  const clipboardWarned = useRef(false);
+  // 注入失败（如 macOS 未授权辅助功能）只提示一次/10s，避免每个按键弹一次
+  const inputErrorWarnedAt = useRef(0);
 
   useEffect(() => {
     // 1) Hydrate from ~/.z-biz-tool-remote/state.json BEFORE showing
@@ -191,6 +195,16 @@ export default function App() {
           if (msg.userId && msg.username) {
             setUser({ userId: msg.userId, username: msg.username });
           }
+          // 服务端改派了新 deviceId：必须如实告诉用户（否则「我的设备」里
+          // 会莫名多出一台，而本机 id 悄悄变了）。
+          if (msg.deviceIdReassigned) {
+            message.warning(
+              msg.deviceIdConflict
+                ? `本机设备 ID 属于另一个账号，已改用新 ID：${msg.deviceId}`
+                : `本机设备 ID 已在其他实例使用，已改用新 ID：${msg.deviceId}`,
+              8
+            );
+          }
           setView({ kind: "main" });
           // 注册后自动请求一次在线列表
           signaling.getOnlineDevices();
@@ -228,6 +242,14 @@ export default function App() {
             role: "client",
             targetDeviceId: msg.hostId,
             at: Date.now(),
+          });
+          // 加入成功必须真的进入控制视图（台账 S2-02）：原来只弹一句 toast，
+          // 用户停在「远程会话」面板上，以为「加了但看不到画面」。
+          setControlling(true);
+          setView({
+            kind: "controlling",
+            sessionId: msg.sessionId,
+            targetId: msg.hostId,
           });
           message.success(t("toast.controlling", { id: msg.hostId }));
           break;
@@ -297,6 +319,7 @@ export default function App() {
             signaling.acceptControl(fromId, sessId, isEphemeral);
             grantedPeers.current.add(fromId);
             useSessionStore.getState().setHosting(true);
+            useSessionStore.getState().setController(fromId);
           };
           // Auto-accept (no dialog) in any of these cases:
           //   1. requester is in our trust list
@@ -321,6 +344,8 @@ export default function App() {
             title: t("dialog.controlRequest", { id: fromId }),
             okText: t("dialog.accept"),
             cancelText: t("dialog.reject"),
+            // 放行陌生人控制整台电脑是高风险动作：默认焦点落在「拒绝」
+            focusable: { autoFocusButton: "cancel" },
             onOk: accept,
             onCancel: () => {
               signaling.rejectControl(fromId, sessId, t("errors.permissionDenied"));
@@ -331,6 +356,16 @@ export default function App() {
         case "CLIENT_JOINED": {
           // 对方持有效 sessionToken 进来，服务端已验过；记为可投递输入的对端
           grantedPeers.current.add(msg.clientId);
+          useSessionStore.getState().setController(msg.clientId);
+          break;
+        }
+        case "CLIENT_LEFT": {
+          // 对端主动离开（LEAVE_SESSION）：必须立刻收回它的输入资格，
+          // 并让被控端看到「谁走了」，而不是继续显示「正在被控制」。
+          grantedPeers.current.delete(msg.clientId);
+          const st = useSessionStore.getState();
+          if (st.controllerId === msg.clientId) st.setController(null);
+          message.info(`对端 ${msg.clientId} 已离开会话${msg.reason ? `：${msg.reason}` : ""}`, 5);
           break;
         }
         case "ONLINE_DEVICES": {
@@ -368,16 +403,41 @@ export default function App() {
   useEffect(() => {
     const off = signaling.on("message", (msg) => {
       if (msg.type !== "INPUT_EVENT") return;
-      const isHosting = useSessionStore.getState().isHosting;
-      if (!isHosting) return;
+      const s = useSessionStore.getState();
+      if (!s.isHosting) return;
+      // 会话归属：事件必须属于**当前**会话（台账 C-19：原来只判 isHosting）
+      if (msg.sessionId && s.sessionId && msg.sessionId !== s.sessionId) {
+        console.warn("dropped INPUT_EVENT from another session", msg.sessionId);
+        return;
+      }
+      // 已被控端「暂停输入」：必须真的挡住（台账 G4-6）
+      if (s.inputPaused) return;
       // simulate_input 是真往操作系统里注事件，不能只信中继：只有这台机器明确
       // 接受过（CONTROL_ACCEPT）或验证过令牌（CLIENT_JOINED）的那个对端才行
       if (!msg.fromId || !grantedPeers.current.has(msg.fromId)) {
         console.warn("dropped INPUT_EVENT from ungranted peer", msg.fromId);
         return;
       }
+      // 隐私开关要有真实效果（台账 C-07 / S2-08）：关掉剪贴板同步后，
+      // 远端「粘贴」的文本不再注入；鼠标键盘不受影响。
+      if (msg.event?.type === "key-type" && getSettings().allowClipboardSync === false) {
+        if (!clipboardWarned.current) {
+          clipboardWarned.current = true;
+          message.warning("设置里已关闭「剪贴板同步」，远端粘贴内容已丢弃");
+        }
+        return;
+      }
       invoke("simulate_input", { event: msg.event }).catch((e) => {
-        console.error("simulate_input failed", e);
+        // 注入失败必须让被控端看见：否则控制端"按键没反应"，两边都不知道为什么
+        const now = Date.now();
+        if (now - inputErrorWarnedAt.current > 10000) {
+          inputErrorWarnedAt.current = now;
+          message.error(
+            `远端输入注入失败：${e instanceof Error ? e.message : String(e)}` +
+              "（请检查系统辅助功能/输入监控权限）",
+            8
+          );
+        }
       });
     });
     return off;
@@ -390,7 +450,7 @@ export default function App() {
   if (!hydrated) {
     content = (
       <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Spin tip="加载中..." />
+        <Spin description="加载中..." />
       </div>
     );
   } else if (view.kind === "login") {

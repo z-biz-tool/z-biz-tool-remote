@@ -517,8 +517,8 @@ export class SignalingClient extends Emitter {
     this.send({ type: "CREATE_SESSION" });
   }
 
-  joinSession(sessionId: string, sessionToken: string) {
-    this.send({ type: "JOIN_SESSION", sessionId, sessionToken });
+  joinSession(sessionId: string, sessionToken: string): boolean {
+    return this.send({ type: "JOIN_SESSION", sessionId, sessionToken });
   }
 
   requestControl(targetId: string, sessionId: string, ephemeral = false) {
@@ -572,18 +572,23 @@ export class SignalingClient extends Emitter {
     this.send({ type: "CHAT_MESSAGE", sessionId, message, fromId: this.deviceId ?? "", timestamp: Date.now() });
   }
 
-  closeSession() {
-    // 协议上 SESSION_CLOSED 通常由服务器推送，客户端不主动发
-    // 如果要主动退出，发送一个空消息
-    this.send({ type: "PONG" });
+  /**
+   * 主动离开/结束会话（台账 S1-B18）。
+   * 原实现是发一个 `PONG` 占位 —— 服务端什么都不做，对端仍留在会话里、
+   * 授权也仍然有效，而本机却已经清屏。现在发真正的 LEAVE_SESSION，
+   * 服务端回 `SESSION_CLOSED`（App.tsx 据此落 UI）或广播 `CLIENT_LEFT`。
+   * 返回值同 send()：false = 没写出去（socket 已断），调用方必须自己收尾。
+   */
+  leaveSession(sessionId: string, reason?: string): boolean {
+    return this.send({ type: "LEAVE_SESSION", sessionId, reason });
   }
 
-  getOnlineDevices() {
-    this.send({ type: "GET_ONLINE_DEVICES" });
+  getOnlineDevices(): boolean {
+    return this.send({ type: "GET_ONLINE_DEVICES" });
   }
 
-  listMyDevices() {
-    this.send({ type: "LIST_MY_DEVICES" });
+  listMyDevices(): boolean {
+    return this.send({ type: "LIST_MY_DEVICES" });
   }
 }
 

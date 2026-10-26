@@ -422,3 +422,28 @@ test("换 URL 时重建 socket", () => {
     c.disconnect();
   });
 });
+
+// ---------------------------------------------------------------- 会话退出
+
+test("leaveSession 发真正的 LEAVE_SESSION，而不是 PONG 占位", () => {
+  withFakeWs(({ client: c, last }) => {
+    c.connect({ url: "wss://h/s", deviceId: "d" });
+    const sock = last();
+    sock.open();
+    sock.sent.length = 0;
+
+    assert.equal(c.leaveSession("sess-1", "用户断开"), true);
+
+    const msgs = sock.sent.map((s) => JSON.parse(s));
+    assert.deepEqual(msgs, [
+      { type: "LEAVE_SESSION", sessionId: "sess-1", reason: "用户断开" },
+    ]);
+    c.disconnect();
+  });
+});
+
+test("socket 断开时 leaveSession 返回 false（调用方据此收尾，不假装成功）", () => {
+  withFakeWs(({ client: c }) => {
+    assert.equal(c.leaveSession("sess-1"), false);
+  });
+});

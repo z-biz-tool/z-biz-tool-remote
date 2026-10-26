@@ -11,6 +11,10 @@ export type SignalMessage =
       // 真正的防线是 TLS（wss://）。
       userId?: string;
       username?: string;
+      /** true = 请求的 deviceId 未被采用（归属其他账号 / 在线冲突），已改派新 id */
+      deviceIdReassigned?: boolean;
+      /** true = 请求的 deviceId 属于其他账号（设备归属冲突，台账 S-04） */
+      deviceIdConflict?: boolean;
     }
   | { type: "LIST_MY_DEVICES" }
   | {
@@ -36,8 +40,9 @@ export type SignalMessage =
     }
   | { type: "JOIN_FAILED"; message: string }
   | { type: "CLIENT_JOINED"; clientId: string }
-  | { type: "CLIENT_LEFT"; clientId: string }
-  | { type: "SESSION_CLOSED"; message?: string }
+  | { type: "CLIENT_LEFT"; clientId: string; sessionId?: string; reason?: string }
+  | { type: "SESSION_CLOSED"; sessionId?: string; message?: string }
+  | { type: "LEAVE_SESSION"; sessionId: string; reason?: string }
   | {
       type: "CONTROL_REQUEST";
       fromId?: string;

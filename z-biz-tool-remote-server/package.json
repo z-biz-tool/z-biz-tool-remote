@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node tests/e2e.test.js && node tests/auth-e2e.test.js && node tests/protocol.test.js && node tests/security-hardening.test.js && node tests/security-regression.test.js",
+    "test": "node tests/e2e.test.js && node tests/auth-e2e.test.js && node tests/protocol.test.js && node tests/security-hardening.test.js && node tests/security-regression.test.js && node tests/session-lifecycle.test.js",
     "test:e2e": "node tests/e2e.test.js",
     "test:auth": "node tests/auth-e2e.test.js",
     "test:protocol": "node tests/protocol.test.js",

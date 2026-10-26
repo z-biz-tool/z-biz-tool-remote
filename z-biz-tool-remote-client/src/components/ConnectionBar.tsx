@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Tooltip } from "antd";
+import { Button, Modal, Tooltip, message } from "antd";
 import { CopyOutlined, ReloadOutlined, PoweroffOutlined } from "@ant-design/icons";
 import { useSessionStore } from "../stores/sessionStore";
 import { signaling, type SocketState } from "../services/signaling";
@@ -41,11 +41,45 @@ export function ConnectionBar() {
     label = `${t("header.failed")}${state.reason ? `：${state.reason}` : ""}`;
   }
 
-  const onDisconnect = () => {
+  const doDisconnect = () => {
     signaling.disconnect();
     useSessionStore.getState().setConnection("offline");
     useSessionStore.getState().clearSession();
     setView({ kind: "login" });
+  };
+
+  // 断开是要重登的动作，先确认；取消是默认焦点，避免误触
+  const onDisconnect = () => {
+    Modal.confirm({
+      title: "断开服务器连接？",
+      content: (
+        <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+          当前会话将立即结束，本机屏幕共享/远程控制都会停止；重新连接需要再次登录。
+        </div>
+      ),
+      okText: "断开",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      focusable: { autoFocusButton: "cancel" },
+      onOk: doDisconnect,
+    });
+  };
+
+  const onCopyDeviceId = async () => {
+    if (!deviceId) {
+      message.warning("设备ID尚未就绪，请等待注册完成");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(deviceId);
+      message.success("设备ID已复制到剪贴板");
+    } catch (e) {
+      // 浏览器剪贴板在非安全上下文会被拒；如实说，并把完整 ID 给出来
+      message.error(
+        `复制失败：${e instanceof Error ? e.message : String(e)}。完整设备ID：${deviceId}`,
+        8
+      );
+    }
   };
 
   return (
@@ -77,19 +111,19 @@ export function ConnectionBar() {
             {t("header.disconnect")}
           </Button>
         )}
-        <Tooltip title={t("toast.copied")}>
-          <span
-            className="device-id-copy"
-            onClick={() => {
-              navigator.clipboard.writeText(deviceId).catch(() => {
-                // ignore
-              });
-            }}
+        <Tooltip title={`复制设备ID：${deviceId || "—"}`}>
+          <Button
+            size="small"
+            type="text"
+            icon={<CopyOutlined />}
+            onClick={onCopyDeviceId}
+            aria-label="复制完整设备ID"
           >
             <span style={{ color: "#999" }}>{t("header.device")}:</span>
-            <span style={{ fontFamily: "monospace" }}>{deviceId.slice(0, 12)}…</span>
-            <CopyOutlined />
-          </span>
+            <span style={{ fontFamily: "monospace", marginLeft: 4 }}>
+              {deviceId ? `${deviceId.slice(0, 12)}…` : "—"}
+            </span>
+          </Button>
         </Tooltip>
       </div>
     </div>

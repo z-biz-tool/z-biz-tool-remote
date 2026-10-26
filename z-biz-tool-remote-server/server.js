@@ -50,6 +50,15 @@ const SESSIONS_FILE = process.env.SESSIONS_FILE || "";
 const WS_TOKEN_TRANSPORT = (process.env.WS_TOKEN_TRANSPORT || "frame").toLowerCase();
 // 首帧鉴权的等待上限：超过就断开，避免未鉴权连接长期占资源
 const WS_AUTH_TIMEOUT_MS = Number(process.env.WS_AUTH_TIMEOUT_MS || 5000);
+// 单条 WS 消息上限（台账 S1-B06）。当前屏幕帧是 base64 JPEG，单帧可达数百 KB，
+// 所以不能按「信令 64KB」卡死；默认 8MB 是「足以放下正常帧、又不让一条消息打爆内存」。
+// 超限时 ws 库直接以 1009 关闭连接（不解析、不转发）。
+const WS_MAX_PAYLOAD = Number(process.env.WS_MAX_PAYLOAD || 8 * 1024 * 1024);
+
+if (!Number.isFinite(WS_MAX_PAYLOAD) || WS_MAX_PAYLOAD < 1024) {
+  logger.error("WS_MAX_PAYLOAD 非法（应为 >=1024 的字节数）", { value: process.env.WS_MAX_PAYLOAD });
+  process.exit(1);
+}
 
 if (!["frame", "query", "both"].includes(WS_TOKEN_TRANSPORT)) {
   logger.error("WS_TOKEN_TRANSPORT 非法，只能是 frame | query | both", { value: WS_TOKEN_TRANSPORT });
@@ -358,7 +367,7 @@ function handleHttp(req, res) {
   res.end("Not Found\n");
 }
 
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
 
 httpServer.on("upgrade", (req, socket, head) => {
   // 1. Auth check.
@@ -531,8 +540,19 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
   switch (msg.type) {
     case "REGISTER": {
       // Server-assigned deviceId avoids collision across multiple instances / reconnects.
-      if (msg.deviceId && !clients.has(msg.deviceId)) {
-        setDeviceId(msg.deviceId);
+      //
+      // 设备归属校验（台账 S-04 / S-05，P0）：deviceId 是**账号资产**。
+      // 原实现只要 `!clients.has(deviceId)` 就接受客户端自带的 id ——
+      // 于是「对方离线」时，任何账号都能用别人的 deviceId 注册，
+      // 直接把这台设备的归属改挂到自己名下（设备劫持），后续
+      // LIST_MY_DEVICES / 控制授权全跟着错。
+      // 现在：id 已属于别的账号 ⇒ 不发这个 id，改发一个服务端新 id 并回
+      // `deviceIdReassigned: true`（不抛错，避免用户卡在「连不上」里）。
+      const requestedId = typeof msg.deviceId === "string" ? msg.deviceId : "";
+      const owned = requestedId ? store.findDevice(requestedId) : null;
+      const ownedByOtherUser = Boolean(user && owned && owned.userId !== user.id);
+      if (requestedId && !ownedByOtherUser && !clients.has(requestedId)) {
+        setDeviceId(requestedId);
       } else {
         const id = "srv-" + randomBytes(4).toString("hex");
         // Reject if the freshly-generated id also collides (1 in 2^32 chance, but still).
@@ -542,6 +562,7 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
         }
         setDeviceId(id);
       }
+      const reassigned = Boolean(requestedId) && getDeviceId() !== requestedId;
       clients.set(getDeviceId(), ws);
       // Bind the device to the user (if WS was authenticated as a user).
       if (user) {
@@ -574,6 +595,9 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
         // Tell the client whether it's bound to a user account.
         userId: user ? user.id : null,
         username: user ? user.username : null,
+        // true = 客户端请求的 deviceId 没被采用（归属他人或在线冲突），本机改用新 id
+        deviceIdReassigned: reassigned,
+        deviceIdConflict: ownedByOtherUser,
       });
       logger.info("device registered", {
         deviceId: getDeviceId(),
@@ -646,12 +670,24 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
         send(ws, { type: "CONTROL_FAILED", message: "目标设备不在线" });
         return;
       }
+      // sameUser 必须由服务端按设备归属算出来，不能由请求方自报（台账 S-16）：
+      // 被控端会据此免确认，客户端说"我们同账号"就等于允许它绕过确认。
+      const fromDevice = store.findDevice(deviceId);
+      const targetDevice = store.findDevice(targetId);
+      const sameUser = Boolean(
+        user && fromDevice && targetDevice &&
+          fromDevice.userId === user.id && targetDevice.userId === user.id
+      );
       send(targetWs, {
         type: "CONTROL_REQUEST",
         fromId: deviceId,
         sessionId: msg.sessionId,
+        ephemeral: Boolean(msg.ephemeral) || !msg.sessionId,
+        sameUser,
+        requestedPermission: msg.requestedPermission,
+        sasHash: msg.sasHash,
       });
-      logger.info("control request", { from: deviceId, to: targetId });
+      logger.info("control request", { from: deviceId, to: targetId, sameUser });
       break;
     }
     case "CONTROL_REJECT": {
@@ -670,19 +706,60 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
     }
     case "CONTROL_ACCEPT": {
       if (!deviceId) return;
-      const targetId = msg.targetId;
-      const targetWs = clients.get(targetId);
-      if (targetWs) {
-        send(targetWs, {
+      // 客户端发的是 fromId（请求方）；targetId 是老字段，两种都收。
+      // 原来只读 targetId ⇒ 真实客户端发 fromId 时这里拿到 undefined，
+      // 既不回执也不授权，「接受控制」看着点了、实际什么都没发生（台账 S1-B16 / Z-08）。
+      const peerId = msg.targetId || msg.fromId;
+      const peerWs = clients.get(peerId);
+      if (!peerWs) {
+        send(ws, { type: "CONTROL_FAILED", message: "请求方已离线" });
+        return;
+      }
+
+      const requestedSessionId = typeof msg.sessionId === "string" ? msg.sessionId : "";
+      const existing = requestedSessionId ? sessions.get(requestedSessionId) : null;
+
+      if (existing && existing.hostId === deviceId) {
+        // 显式会话已存在：沿用原会话，不新建
+        existing.clients.add(peerId);
+        grantControl(deviceId, peerId);
+        send(peerWs, {
           type: "CONTROL_ACCEPTED",
           targetId: deviceId,
-          sessionId: msg.sessionId,
+          sessionId: requestedSessionId,
         });
-        grantControl(deviceId, targetId);
-        logger.info("control accepted", {
+        send(ws, { type: "CLIENT_JOINED", clientId: peerId });
+        logger.info("control accepted (existing session)", {
           host: deviceId,
-          peer: targetId,
-          peers: controlGrants.get(deviceId)?.size ?? 0,
+          peer: peerId,
+          sessionId: requestedSessionId,
+        });
+      } else {
+        // 一键互控（无显式会话）：服务端**真正建会话**，并把
+        // sessionId/sessionToken/role 回给请求方，否则控制端停在
+        // controlling 视图却没有任何会话可收帧（台账 Z-08）。
+        const sessionId = randomBytes(4).toString("hex");
+        const sessionToken = randomBytes(8).toString("hex");
+        const sess = getOrCreateSession(sessionId);
+        sess.hostId = deviceId;
+        sess.sessionToken = sessionToken;
+        sess.clients.add(deviceId);
+        sess.clients.add(peerId);
+        grantControl(deviceId, peerId);
+        // 被控端据此切到 HostingView 并开始推流
+        send(ws, { type: "SESSION_CREATED", sessionId, sessionToken, deviceId });
+        send(peerWs, {
+          type: "CONTROL_ACCEPTED",
+          targetId: deviceId,
+          sessionId,
+          sessionToken,
+          role: "client",
+        });
+        persistSessions();
+        logger.info("control accepted (new ephemeral session)", {
+          host: deviceId,
+          peer: peerId,
+          sessionId,
         });
       }
       break;
@@ -773,6 +850,58 @@ function handleMessage(ws, msg, getDeviceId, setDeviceId, remoteAddr, user) {
         if (pid === deviceId) continue;
         send(clients.get(pid), payload);
       }
+      break;
+    }
+    case "LEAVE_SESSION": {
+      // 主动离开/结束会话（台账 S1-B18 / G6-1）。
+      // 原实现里客户端 `closeSession()` 发的是一个 PONG 占位 —— 服务端什么都不做，
+      // 于是「我点了结束会话」只是本地清屏：对端仍在会话里、服务端仍认为授权有效。
+      // 现在：移除成员 + 撤销授权 + 广播 CLIENT_LEFT/SESSION_CLOSED，
+      // 并且**给离开者回一个终态**，客户端据此才落 UI（不再靠猜）。
+      if (!deviceId) return;
+      const sid = typeof msg.sessionId === "string" ? msg.sessionId : "";
+      const reason = typeof msg.reason === "string" ? msg.reason.slice(0, 200) : undefined;
+      const sess = sid ? sessions.get(sid) : null;
+      if (!sess) {
+        // 幂等：会话已结束 / 本就不存在，也回终态，避免客户端停在「正在结束…」
+        send(ws, { type: "SESSION_CLOSED", sessionId: sid, message: reason || "会话已结束" });
+        return;
+      }
+      const isHost = sess.hostId === deviceId;
+      if (!isHost && !sess.clients.has(deviceId)) {
+        logger.warn("leave session rejected: not a member", { deviceId, sessionId: sid });
+        send(ws, { type: "SESSION_CLOSED", sessionId: sid, message: "你不在该会话中" });
+        return;
+      }
+      if (isHost) {
+        // 主持人结束 ⇒ 整个会话结束（保留成员名单用于逐个通知）
+        sessions.delete(sid);
+        for (const cid of sess.clients) {
+          if (cid === deviceId) continue;
+          send(clients.get(cid), {
+            type: "SESSION_CLOSED",
+            sessionId: sid,
+            message: "主持人已结束会话",
+          });
+        }
+        send(ws, { type: "SESSION_CLOSED", sessionId: sid, message: "会话已结束" });
+      } else {
+        sess.clients.delete(deviceId);
+        send(clients.get(sess.hostId), {
+          type: "CLIENT_LEFT",
+          sessionId: sid,
+          clientId: deviceId,
+          reason,
+        });
+        for (const cid of sess.clients) {
+          send(clients.get(cid), { type: "CLIENT_LEFT", sessionId: sid, clientId: deviceId, reason });
+        }
+        send(ws, { type: "SESSION_CLOSED", sessionId: sid, message: "你已离开会话" });
+      }
+      // 离开即失去「可注入输入」的资格：不清授权的话，对方窗口还挂着也能继续操作
+      dropGrantsFor(deviceId);
+      persistSessions();
+      logger.info("session left", { deviceId, sessionId: sid, hostLeft: isHost });
       break;
     }
     case "PING":

@@ -364,12 +364,33 @@ body {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.3px;
+  white-space: nowrap;
 }
 .sl-table td {
   padding: 12px;
   border-bottom: 1px solid #232323;
   color: #d0d0d0;
   vertical-align: middle;
+  white-space: nowrap;
+}
+/* 设备名一列可省略，其余列不允许被挤成竖排单字 */
+.sl-table td:first-child {
+  white-space: normal;
+}
+.sl-table .device-name {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+/* 900px 窗宽下主区只剩 ~440px，备注（相对时间）是低价值列，优先让位给状态与操作 */
+@media (max-width: 1000px) {
+  .sl-table th:nth-child(3),
+  .sl-table td:nth-child(3) {
+    display: none;
+  }
 }
 .sl-table tr:hover td { background: #1f1f1f; }
 .sl-table .platform-icon {
@@ -397,6 +418,10 @@ body {
   color: #777;
   font-size: 11px;
   margin-top: 2px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sl-status {

@@ -72,7 +72,7 @@ export function LoadingState({ tip = "加载中...", minHeight = 240 }: LoadingS
       }}
     >
       <Spin
-        tip={tip}
+        description={tip}
         size="large"
         indicator={<LoadingOutlined style={{ fontSize: 28 }} spin />}
       />

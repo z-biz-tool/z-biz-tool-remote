@@ -136,6 +136,13 @@ export function listDevicesByUser(userId) {
 export function upsertDevice({ id, userId, name, lastSeen, createdAt }) {
   const existing = state.devices.find((d) => d.id === id);
   if (existing) {
+    // 设备归属不可被覆写（台账 S-04）：原来这里直接 `existing.userId = userId`，
+    // 任何账号只要拿同一个 deviceId 注册一次，就把设备「过继」到自己名下。
+    // 服务端 REGISTER 已先拦一道，这里是持久层的第二道（防止别的调用方绕过）。
+    if (existing.userId && userId && existing.userId !== userId) {
+      logger.warn("upsertDevice rejected: device belongs to another user", { id });
+      return Promise.resolve(false);
+    }
     existing.userId = userId;
     existing.name = name || existing.name;
     existing.lastSeen = lastSeen;

@@ -25,6 +25,7 @@ const zh: Dict = {
   "main.untrust": "取消信任",
   "main.empty": "暂无在线设备",
   "hosting.title": "正在被远程控制",
+  "hosting.waiting": "远程会话已创建，等待控制端接入",
   "hosting.shareHint": "将会话ID和令牌发给控制方",
   "hosting.stop": "结束会话",
   "control.title": "远程控制中",

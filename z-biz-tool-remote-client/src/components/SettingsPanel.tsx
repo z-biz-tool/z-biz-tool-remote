@@ -31,21 +31,25 @@ export function SettingsPanel() {
   const [draft, setDraft] = useState(settings);
   const [displays, setDisplays] = useState<{ id: number; name: string; width: number; height: number; is_primary: boolean }[]>([]);
   const [selectedDisplay, setSelectedDisplay] = useState<number | null>(null);
+  // 显示器列表是 Tauri 侧能力，跑在浏览器里必然失败；失败要说出来而不是只进 console
+  const [displaysError, setDisplaysError] = useState<string>("");
 
   // 加载显示器列表
   useEffect(() => {
-    loadDisplays();
+    void loadDisplays();
   }, []);
 
   const loadDisplays = async () => {
     try {
-      const displays = await invoke<DisplayInfo[]>("list_displays");
-      setDisplays(displays);
-      if (displays.length > 0 && selectedDisplay === null) {
-        setSelectedDisplay(displays.find((d) => d.is_primary)?.id ?? displays[0].id);
+      const list = await invoke<DisplayInfo[]>("list_displays");
+      setDisplays(list);
+      setDisplaysError("");
+      if (list.length > 0 && selectedDisplay === null) {
+        setSelectedDisplay(list.find((d) => d.is_primary)?.id ?? list[0].id);
       }
     } catch (e) {
-      console.error("加载显示器列表失败:", e);
+      setDisplays([]);
+      setDisplaysError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -184,7 +188,15 @@ export function SettingsPanel() {
               placeholder="选择要共享的显示器"
             />
             {displays.length === 0 && (
-              <div style={{ color: "#ff4d4f", fontSize: 12 }}>未检测到显示器</div>
+              <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>
+                {displaysError
+                  ? `无法获取显示器列表：${displaysError}`
+                  : "未检测到显示器"}
+                {" "}
+                <Button type="link" size="small" onClick={() => void loadDisplays()}>
+                  重试
+                </Button>
+              </div>
             )}
           </Form.Item>
         )}
@@ -253,19 +265,18 @@ export function SettingsPanel() {
               />
               <span>{t("settings.clipboardSync")}</span>
             </Space>
+            <div style={{ fontSize: 12, color: "#888", marginLeft: 44, marginTop: -6 }}>
+              关闭后本机会丢弃远端发来的「粘贴文本」事件（键鼠控制不受影响）。
+            </div>
             <Space>
-              <Switch
-                checked={draft.allowFileTransfer}
-                onChange={(v) => setDraft({ ...draft, allowFileTransfer: v })}
-              />
-              <span>{t("settings.fileTransfer")}</span>
+              <Switch checked={draft.allowFileTransfer} disabled />
+              <span style={{ color: "#888" }}>{t("settings.fileTransfer")}</span>
+              <span style={{ fontSize: 12, color: "#888" }}>服务端未实现文件通道，暂不可用</span>
             </Space>
             <Space>
-              <Switch
-                checked={draft.allowChat}
-                onChange={(v) => setDraft({ ...draft, allowChat: v })}
-              />
-              <span>{t("settings.chat")}</span>
+              <Switch checked={draft.allowChat} disabled />
+              <span style={{ color: "#888" }}>{t("settings.chat")}</span>
+              <span style={{ fontSize: 12, color: "#888" }}>服务端未实现消息通道，暂不可用</span>
             </Space>
           </Space>
         </Form.Item>
