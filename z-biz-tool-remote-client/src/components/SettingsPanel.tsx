@@ -1,4 +1,4 @@
-import { Button, Card, Form, Input, InputNumber, List, Popconfirm, Select, Slider, Space, Switch, Tag, message } from "antd";
+import { Button, Card, Form, Input, InputNumber, List, Popconfirm, Select, Slider, Space, Switch, Tag, message, theme } from "antd";
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -26,6 +26,7 @@ interface DisplayInfo {
 }
 
 export function SettingsPanel() {
+  const { token } = theme.useToken();
   const { settings, update } = useSettingsStore();
   const { role, sessionId, isHosting } = useSessionStore();
   const [draft, setDraft] = useState(settings);
@@ -156,7 +157,7 @@ export function SettingsPanel() {
                   <Space>
                     {isCurrent && <Tag color="blue">当前</Tag>}
                     <span style={{ fontFamily: "monospace" }}>{displayUrl(p.url)}</span>
-                    {p.label && <span style={{ color: "#999" }}>({p.label})</span>}
+                    {p.label && <span style={{ color: token.colorTextTertiary }}>({p.label})</span>}
                   </Space>
                 </List.Item>
               );

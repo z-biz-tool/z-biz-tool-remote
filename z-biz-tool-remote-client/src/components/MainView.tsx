@@ -1,4 +1,4 @@
-import { Button, Input, Modal, Space, Tag, Tooltip, message } from "antd";
+import { Button, Input, Modal, Space, Tag, Tooltip, message, theme } from "antd";
 import {
   ApiOutlined,
   AppleOutlined,
@@ -88,6 +88,7 @@ function navProps(active: boolean, activate: () => void) {
 }
 
 export function MainView() {
+  const { token } = theme.useToken();
   const { deviceId, onlineDevices, role, sessionId, setSession, setView, userId, username, setUser, connection } =
     useSessionStore();
   const [joinId, setJoinId] = useState("");
@@ -351,9 +352,9 @@ export function MainView() {
         try {
           // 尽量调用后端 logout(让 refresh token 失效),但失败也不阻塞
           const base = serverUrlToHttpBase(describeWsUrl(getSettings().serverUrl).url);
-          await api.logout(base).catch(() => {});
-        } catch {
-          /* ignore */
+          await api.logout(base);
+        } catch (e) {
+          console.warn("[remote] 后端 logout 失败（本地仍退出，refresh token 可能未失效）:", e);
         }
         setAuth(null);
         setUser(null);
@@ -509,7 +510,7 @@ export function MainView() {
               {role === "client" && sessionId && (
                 <div className="sl-cat-item">
                   <DisconnectOutlined />
-                  <span style={{ color: "#999" }}>当前: {sessionId.slice(0, 8)}</span>
+                  <span style={{ color: token.colorTextTertiary }}>当前: {sessionId.slice(0, 8)}</span>
                 </div>
               )}
             </div>
@@ -543,7 +544,7 @@ export function MainView() {
           {section === "devices" && (
             <Input
               className="sl-main-search"
-              prefix={<SearchOutlined style={{ color: "#666" }} />}
+              prefix={<SearchOutlined style={{ color: token.colorTextTertiary }} />}
               placeholder="搜索 设备名 / 设备ID"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

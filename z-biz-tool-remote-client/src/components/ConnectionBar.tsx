@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Button, Modal, Tooltip, message } from "antd";
+import { Button, Modal, Tooltip, message, theme } from "antd";
 import { CopyOutlined, ReloadOutlined, PoweroffOutlined } from "@ant-design/icons";
 import { useSessionStore } from "../stores/sessionStore";
 import { signaling, type SocketState } from "../services/signaling";
 import { t } from "../i18n";
 
 export function ConnectionBar() {
+  const { token } = theme.useToken();
   const { connection, deviceId, setView } = useSessionStore();
   const [state, setState] = useState<SocketState>(() => signaling.state);
 
@@ -86,7 +87,7 @@ export function ConnectionBar() {
     <div className="app-header">
       <div className="app-header-title">
         <span>{t("app.title")}</span>
-        <span style={{ color: "#999", fontWeight: 400, fontSize: 12 }}>{t("app.subtitle")}</span>
+        <span style={{ color: token.colorTextTertiary, fontWeight: 400, fontSize: 12 }}>{t("app.subtitle")}</span>
       </div>
       <div className="app-header-meta">
         <Tooltip title={state.reason ?? ""}>
@@ -119,7 +120,7 @@ export function ConnectionBar() {
             onClick={onCopyDeviceId}
             aria-label="复制完整设备ID"
           >
-            <span style={{ color: "#999" }}>{t("header.device")}:</span>
+            <span style={{ color: token.colorTextTertiary }}>{t("header.device")}:</span>
             <span style={{ fontFamily: "monospace", marginLeft: 4 }}>
               {deviceId ? `${deviceId.slice(0, 12)}…` : "—"}
             </span>

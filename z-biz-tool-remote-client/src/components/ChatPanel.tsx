@@ -1,4 +1,4 @@
-import { Button, Card, Input, List, Space } from "antd";
+import { Button, Card, Input, List, Space, theme } from "antd";
 import { SendOutlined } from "@ant-design/icons";
 import { useState, useEffect } from "react";
 import { useSessionStore } from "../stores/sessionStore";
@@ -17,6 +17,7 @@ interface ChatMessage {
 const { TextArea } = Input;
 
 export function ChatPanel() {
+  const { token } = theme.useToken();
   const { sessionId, deviceId } = useSessionStore();
   const [messageText, setMessageText] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -73,13 +74,13 @@ export function ChatPanel() {
           maxHeight: 250,
           overflowY: "auto",
           marginBottom: 12,
-          backgroundColor: "#fafafa",
+          backgroundColor: token.colorFillQuaternary,
           borderRadius: 4,
           padding: 8,
         }}
       >
         {messages.length === 0 ? (
-          <div style={{ textAlign: "center", color: "#999", padding: 20 }}>
+          <div style={{ textAlign: "center", color: token.colorTextTertiary, padding: 20 }}>
             {t("chat.empty")}
           </div>
         ) : (
@@ -89,7 +90,7 @@ export function ChatPanel() {
               <List.Item
                 style={{
                   justifyContent: msg.isMe ? "flex-end" : "flex-start",
-                  backgroundColor: msg.isMe ? "#e6f7ff" : "#fffbe6",
+                  backgroundColor: msg.isMe ? token.colorPrimaryBg : token.colorWarningBg,
                   borderRadius: 4,
                   padding: "8px 12px",
                   marginBottom: 8,
@@ -99,14 +100,14 @@ export function ChatPanel() {
                 <div>
                   <div
                     style={{
-                      color: "#666",
+                      color: token.colorTextSecondary,
                       fontSize: 12,
                       marginBottom: 4,
                     }}
                   >
                     {msg.isMe ? t("chat.me") : t("chat.remote")} - {formatTime(msg.timestamp)}
                   </div>
-                  <div style={{ color: "#333", fontSize: 14 }}>{msg.text}</div>
+                  <div style={{ color: token.colorText, fontSize: 14 }}>{msg.text}</div>
                 </div>
               </List.Item>
             )}
