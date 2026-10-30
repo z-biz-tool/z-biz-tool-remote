@@ -1,0 +1,23 @@
+{
+  "version": "0.2.6",
+  "notes": "See the assets below to download this version.",
+  "pub_date": "2026-10-30T15:48:07Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "https://github.com/z-biz-tool/z-biz-tool-remote/releases/download/v0.2.6/z-biz-tool-remote_aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSdXNzZDVpbWtnK1N5d3A0ZXJuMTkvSmZaU2dUay9UMjA0MHpBT0k1WkZ3ajM3OEhiT0ZsbFBMa0JueEpEYW9YaHhTQk82RngxN0o4RlEzR29iTWp4UTQrRW8rbW1HMlFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMzc0MjUzCWZpbGU6ei1iaXotdG9vbC1yZW1vdGUuYXBwLnRhci5negpBUkJvSDNHYVBsWllTeGxKN21lRXpic0dHbEVsZEU4YWN4WUJYUURIemtQMXNGN1BxM3ZabDhNZnd0NHA0bTNXakN0YVFEanRVUFFFcCt6VTNlelpEZz09Cg=="
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/z-biz-tool/z-biz-tool-remote/releases/download/v0.2.6/z-biz-tool-remote_x64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSdXNzZDVpbWtnK1lSYnlmaVRjWDZ1QzJqMkV6c09ZYWtLa3M2ZjFTS3BHKy9zNis4aHNKdTVkNTVuVU52VDVGcURsazNDUktqMmh3S0hKMm03ejFLak1mMEJ1MEg2MkFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMzc1MjM5CWZpbGU6ei1iaXotdG9vbC1yZW1vdGUuYXBwLnRhci5negpQWHBVZ1czb21wZzRlNnJpWjdGSkYxYVA0WUJLc0VpLzZQS0ZFMGs3cXRlNGtoRjlobDJQbTBHdXRPa3ZYWHd1RGduYm1BZDJzZG5ObWoxMFF1R2lCZz09Cg=="
+    },
+    "linux-x86_64": {
+      "url": "https://github.com/z-biz-tool/z-biz-tool-remote/releases/download/v0.2.6/z-biz-tool-remote_0.2.6_amd64.AppImage",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSdXNzZDVpbWtnK1ljMkp1RCs5MW9rWkVWc3krQjZXcEhKR2FjMEJVellIbVFSNFhtYlpId1dBTnNkYlZ6MWw0S2JLYXZBTHpEYnJXNzlUYnNkUWRXTHVIcktiZ2l5dWdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMzc1MTE4CWZpbGU6ei1iaXotdG9vbC1yZW1vdGVfMC4yLjZfYW1kNjQuQXBwSW1hZ2UKQjJacDNHelp3WFRFQm1zUk5OSVFhcm5ZWnFZT1hYMy9VVHZjcW9zYWZYSUp2R3RtQ0QrcGZjLzAweUlQMFR4b3hhTms3ajM4VG95aGVadkk1UVVnQnc9PQo="
+    },
+    "windows-x86_64": {
+      "url": "https://github.com/z-biz-tool/z-biz-tool-remote/releases/download/v0.2.6/z-biz-tool-remote_0.2.6_x64_en-US.msi",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSdXNzZDVpbWtnK1dEOFkyNnVMbm9IUFpnT2hqOXpXZnVwVG8vTFh2QlNCcmN4Q2pXdTRQaEQ0emprOGdSWGxxbTRrVWtmWHBxZlZBdzNJbnJvTGs1WmRXNmxvMUU3bkFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMzc1MjYyCWZpbGU6ei1iaXotdG9vbC1yZW1vdGVfMC4yLjZfeDY0X2VuLVVTLm1zaQpCbEp1RU9aUHZLTFc1N3N4V1RJcnVtcnQvc0xTVmhvQ3dGdllGU245UFJoSWdJcDhMRDdxK0FnOHBadFZUVjAwRndDU2hzNXpvcU5ZMWFvL3U4eFRBdz09Cg=="
+    }
+  }
+}
