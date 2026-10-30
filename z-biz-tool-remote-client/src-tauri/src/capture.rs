@@ -1,6 +1,6 @@
 use serde::Serialize;
-use xcap::Monitor;
 use xcap::image::RgbaImage;
+use xcap::Monitor;
 
 #[derive(Debug, Serialize)]
 pub struct DisplayInfo {
@@ -78,7 +78,11 @@ pub fn capture_to_jpeg(quality: u8, max_width: u32) -> Result<CapturedFrame, Str
 }
 
 // 新增：支持选择特定显示器截屏
-pub fn capture_monitor_to_jpeg(display_id: u32, quality: u8, max_width: u32) -> Result<CapturedFrame, String> {
+pub fn capture_monitor_to_jpeg(
+    display_id: u32,
+    quality: u8,
+    max_width: u32,
+) -> Result<CapturedFrame, String> {
     let monitors = Monitor::all().map_err(|e| format!("枚举显示器失败: {e}"))?;
     let monitor = monitors
         .iter()
@@ -138,8 +142,7 @@ mod tests {
     fn encode_jpeg_rejects_mismatched_buffer() {
         // 3 通道数据冒充 4 通道：走 cap_img 的长度校验
         let short = vec![128u8; 64 * 48 * 3];
-        let err = cap_img::encode_frame_jpeg(&short, 64, 48, 80, 0)
-            .expect_err("长度不符应报错");
+        let err = cap_img::encode_frame_jpeg(&short, 64, 48, 80, 0).expect_err("长度不符应报错");
         assert!(err.contains("长度不符"), "实得 {}", err);
     }
 }

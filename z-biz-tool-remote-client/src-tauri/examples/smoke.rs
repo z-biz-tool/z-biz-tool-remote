@@ -1,12 +1,12 @@
 // 本地烟雾测试：xcap 截屏 + enigo 初始化
 // 跑：cargo run --example smoke --manifest-path src-tauri/Cargo.toml
+use enigo::{Enigo, Settings};
 use std::fs;
 use std::time::Instant;
-use xcap::Monitor;
+use xcap::image::codecs::jpeg::JpegEncoder;
 use xcap::image::ExtendedColorType;
 use xcap::image::ImageEncoder;
-use xcap::image::codecs::jpeg::JpegEncoder;
-use enigo::{Enigo, Settings};
+use xcap::Monitor;
 
 fn main() {
     println!("=== z-biz-tool-remote smoke test ===\n");
@@ -57,7 +57,11 @@ fn main() {
         println!("    FAIL: {e}");
         std::process::exit(3);
     }
-    println!("    jpeg size: {} bytes ({:.1} KB)", buf.len(), buf.len() as f64 / 1024.0);
+    println!(
+        "    jpeg size: {} bytes ({:.1} KB)",
+        buf.len(),
+        buf.len() as f64 / 1024.0
+    );
 
     let out = "/tmp/zbt-smoke-capture.jpg";
     fs::write(out, &buf).expect("write jpeg");

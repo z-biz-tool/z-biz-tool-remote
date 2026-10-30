@@ -87,7 +87,8 @@ pub fn dispatch(event: InputEvent) -> Result<(), String> {
         }
         InputEvent::MouseUp { button } => {
             let b = map_button(&button).ok_or_else(|| format!("未知鼠标按钮: {button}"))?;
-            eg.button(b, Direction::Release).map_err(|e| e.to_string())?;
+            eg.button(b, Direction::Release)
+                .map_err(|e| e.to_string())?;
         }
         InputEvent::MouseWheel { delta_y, delta_x } => {
             if delta_y != 0 {

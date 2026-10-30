@@ -29,7 +29,11 @@ pub fn capture_screen(quality: u8, max_width: u32) -> Result<ScreenFrame, String
 
 /// 截取指定显示器一帧并返回 JPEG/base64
 #[tauri::command]
-pub fn capture_monitor(display_id: u32, quality: u8, max_width: u32) -> Result<ScreenFrame, String> {
+pub fn capture_monitor(
+    display_id: u32,
+    quality: u8,
+    max_width: u32,
+) -> Result<ScreenFrame, String> {
     let frame = capture::capture_monitor_to_jpeg(display_id, quality, max_width)?;
     Ok(ScreenFrame {
         base64: frame.base64,
@@ -70,10 +74,7 @@ pub fn get_app_info() -> AppInfo {
 
 // 新增：发送系统通知（用于聊天消息等）
 #[tauri::command]
-pub fn send_system_notification(
-    app: tauri::AppHandle,
-    message: String,
-) -> Result<(), String> {
+pub fn send_system_notification(app: tauri::AppHandle, message: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use tauri_plugin_notification::NotificationExt;

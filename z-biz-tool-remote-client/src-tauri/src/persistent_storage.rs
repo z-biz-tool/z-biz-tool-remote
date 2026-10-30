@@ -73,8 +73,7 @@ fn default_version() -> u32 {
 fn state_dir() -> Result<PathBuf, String> {
     // Windows 没有 HOME，用 USERPROFILE；两者都没有才报错。
     let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    let home = std::env::var(var)
-        .map_err(|_| format!("{} environment variable not set", var))?;
+    let home = std::env::var(var).map_err(|_| format!("{} environment variable not set", var))?;
     Ok(PathBuf::from(home).join(DIR_NAME))
 }
 
@@ -106,13 +105,15 @@ pub fn get_state_path() -> Result<String, String> {
 /// Returns `Ok(Some(default))` if the file exists but is empty / corrupt.
 #[tauri::command]
 pub fn read_persistent_state() -> Result<Option<PersistentState>, String> {
-    let _guard = WRITE_LOCK.lock().map_err(|e| format!("lock poisoned: {}", e))?;
+    let _guard = WRITE_LOCK
+        .lock()
+        .map_err(|e| format!("lock poisoned: {}", e))?;
     let path = state_file()?;
     if !path.exists() {
         return Ok(None);
     }
-    let raw = fs::read_to_string(&path)
-        .map_err(|e| format!("read {} failed: {}", path.display(), e))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|e| format!("read {} failed: {}", path.display(), e))?;
     if raw.trim().is_empty() {
         return Ok(None);
     }
@@ -135,7 +136,9 @@ pub fn read_persistent_state() -> Result<Option<PersistentState>, String> {
 /// written if the process is killed mid-write.
 #[tauri::command]
 pub fn write_persistent_state(state: PersistentState) -> Result<(), String> {
-    let _guard = WRITE_LOCK.lock().map_err(|e| format!("lock poisoned: {}", e))?;
+    let _guard = WRITE_LOCK
+        .lock()
+        .map_err(|e| format!("lock poisoned: {}", e))?;
     let dir = ensure_dir()?;
     let path = dir.join(FILE_NAME);
     let tmp = dir.join(format!("{}.tmp", FILE_NAME));
@@ -174,18 +177,25 @@ pub fn write_persistent_state(state: PersistentState) -> Result<(), String> {
             .map_err(|e| format!("chmod 0600 {} failed: {}", tmp.display(), e))?;
     }
 
-    fs::rename(&tmp, &path)
-        .map_err(|e| format!("rename {} -> {} failed: {}", tmp.display(), path.display(), e))?;
+    fs::rename(&tmp, &path).map_err(|e| {
+        format!(
+            "rename {} -> {} failed: {}",
+            tmp.display(),
+            path.display(),
+            e
+        )
+    })?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn clear_persistent_state() -> Result<(), String> {
-    let _guard = WRITE_LOCK.lock().map_err(|e| format!("lock poisoned: {}", e))?;
+    let _guard = WRITE_LOCK
+        .lock()
+        .map_err(|e| format!("lock poisoned: {}", e))?;
     let path = state_file()?;
     if path.exists() {
-        fs::remove_file(&path)
-            .map_err(|e| format!("remove {} failed: {}", path.display(), e))?;
+        fs::remove_file(&path).map_err(|e| format!("remove {} failed: {}", path.display(), e))?;
     }
     Ok(())
 }
