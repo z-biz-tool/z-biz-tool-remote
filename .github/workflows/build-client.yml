@@ -104,7 +104,12 @@ jobs:
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ⚠️ 这里必须优先用 RELEASE_TOKEN（有 repo 权限的 PAT），不能用内置 GITHUB_TOKEN。
+          # v0.2.6 首次发版实测：四平台构建与签名全部成功，最后一步建 Release 被拒
+          #   Resource not accessible by integration
+          # 同组织、同 permissions 声明的 note 仓却能建成功，仓级设置逐项比对也一致，
+          # 定位不到差异（组织级策略接口非 admin 读不到）。改走 PAT 绕开，效果确定。
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ steps.signing.outputs.mode == 'signed' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ steps.signing.outputs.mode == 'signed' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
@@ -138,6 +143,9 @@ jobs:
       - name: Generate updater manifest fragment
         if: steps.signing.outputs.mode == 'signed'
         shell: bash
+        # gh api 回查 release 资产真名需要 token（Actions 里 gh 不会自动带上）
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           # ⚠️ 目录名不带点：actions/upload-artifact@v4 **默认不上传隐藏文件/目录**，
@@ -257,7 +265,7 @@ jobs:
 
       - name: Compose latest.json and push to main
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${{ github.ref_name }}"
