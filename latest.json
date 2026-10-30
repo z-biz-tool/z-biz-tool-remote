@@ -1,6 +1,6 @@
 {
   "version": "0.2.6",
-  "notes": "See the assets below to download this version.",
+  "notes": "自 v0.2.5 以来共 29 个提交。这一版的主线是**安全暴露面收口**：生产环境从「8080 明文暴露在公网」改成「nginx 反代 WSS + 服务只监听本机」，同时修掉四个真实可被越权利用的漏洞。客户端则接上了官方更新通道。\n\n### Security\n\n- **传输零加密（P0）闭合**：客户端 → 服务端从 `ws://101.37.80.51:8080` 改为 `wss://remote.zopc.top:443`，通配符证书；服务端改为只监听 `127.0.0.1`，8080 不再对公网开放\n- **注册免鉴权**收口；令牌不再进 URL 查询串（避免被日志与 Referer 带走）\n- **`SCREEN_FRAME` 不校验会话成员**：此前任何已注册设备都能往任意会话注入画面 —— 补成员校验\n- **`GET_ONLINE_DEVICES` 跨租户泄漏**全量 `deviceId` —— 收窄到本租户\n- **`INPUT_EVENT` 先验授权**：注入输入前先确认该设备确属本会话，通道改三层自适应\n- 删除「假加密」字段（写了但实际不加密，比没有更危险）\n- 新增 `security-probe.mjs`：对已部署实例跑四项只读安全探测\n\n### Features\n\n- 客户端接入官方 updater + 单实例：可自动检查并安装新版本；重复启动不再开出第二个窗口\n- 一键互控真正闭环（此前的「一键」只走到一半）\n- `compose` 支持 `HTTPS_PORT`，发布面可从 8080 切到 443\n\n### Fixes\n\n- **更新通道两个家族级 bug**（静默失效，不报错但永远收不到更新）：\n  - 片段目录 `.updater-fragments` 被 `upload-artifact@v4` 默认隐藏规则跳过 ⇒ `latest.json` 从未成功推出去。改为不带前导点的目录名\n  - `latest.json` 下载链接因双 macOS 包被 tauri-action 加架构后缀而 404 —— 改为回查 release 资产按「扩展名 + 架构词」取真实名，并远端 / 本地签名逐字节比对\n- 截屏 JPEG 编码改走 `cap-img`，修掉 4 通道声明 Rgb8 导致的 panic\n- 信令状态机 `disconnect` 会把「连接失败」冲成「未连接」—— 状态不再说谎\n- 交互契约第二轮：摘除未用 `fs` / `shell` 插件权限、暗色主题聊天块可读性、900×600 布局收口\n- 图标挂进 build script 的重跑指纹；换用家族矢量图标源\n- CI 解除 npmmirror 地域锁定；客户端已有的 11 条测试接进流水线\n\n### Tests\n\n- 服务端补三条安全回归：默认不读查询串令牌 / 非法 body 计数 / TLS 配错即败\n- 客户端信令状态机补测试网（此前为零）\n\n### Docs\n\n- 2026-10-25 生产收口记录：含实测证据与回滚步骤\n- 2026-10-21 暴露面修复部署 runbook\n- `deploy.sh` 生产部署脚本（安全组收口 + 部署后验证）",
   "pub_date": "2026-10-30T15:48:07Z",
   "platforms": {
     "darwin-aarch64": {
