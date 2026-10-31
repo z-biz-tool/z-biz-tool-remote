@@ -15,7 +15,12 @@ on:
 env:
   IMAGE_NAME: z-biz-tool-remote-server
   REGISTRY: ghcr.io
-  IMAGE_OWNER: z-biz
+  # 镜像归属**必须等于仓库所在组织**（z-biz-tool）。
+  # 原来写的是 z-biz —— 那是另一个组织（挂着 fiction/creator/news 那批无关产品）。
+  # GITHUB_TOKEN 只能往本仓所属组织的包空间推，写错组织会得到
+  # "permission_denied: The requested installation does not exist"，
+  # 而且**构建那步是绿的** ⇒ 这条门禁从 2026-09-06 起连红 12 次，与任何人的改动无关。
+  IMAGE_OWNER: z-biz-tool
 
 jobs:
   build:
