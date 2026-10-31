@@ -1,0 +1,14 @@
+{
+  "id": "remote",
+  "displayName": "跨平台远程控制",
+  "description": "WebSocket 信令 + Tauri 客户端",
+  "acceptsDeepLink": true,
+  "actions": [
+    "open"
+  ],
+  "keywords": [
+    "远程",
+    "远控",
+    "远程控制"
+  ]
+}
