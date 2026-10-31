@@ -311,6 +311,19 @@ function handleHttp(req, res) {
     });
     return;
   }
+  // SSO（ctc 统一登录）—— **可选**：服务端没配时返回 204 / 503，
+  // 账号密码登录照常可用，不受影响。
+  if (req.method === "GET" && req.url === "/api/sso/config") {
+    auth.handleSsoConfig(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/auth/sso") {
+    auth.handleSsoLogin(req, res).catch((e) => {
+      logger.error("sso handler error", { err: String(e) });
+      try { res.writeHead(500, { "content-type": "application/json" }); res.end('{"error":"internal"}'); } catch {}
+    });
+    return;
+  }
   if (req.method === "POST" && req.url === "/api/auth/refresh") {
     auth.handleRefresh(req, res).catch((e) => {
       logger.error("refresh handler error", { err: String(e) });

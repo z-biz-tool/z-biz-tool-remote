@@ -277,6 +277,160 @@ export async function handleLogin(req, res) {
   });
 }
 
+// ---------- ctc SSO ----------
+//
+// 信任模型（**别改**）：客户端只拿 ctc 的 access_token 过来，服务端**自己**拿它
+// 去 ctc 的 userinfo 端点换身份。
+//
+// 为什么服务端必须自己去换：若客户端直接上报「我是 u_123」，那任何人都能冒充
+// 任何人 —— 客户端上报的字段没有任何可信度。access_token 本身是 bearer 凭据，
+// 只有 ctc 的 userinfo 能证明它此刻属于谁。
+//
+// 与账号密码登录的关系：两条路都发本服务自己的 session token。
+// SSO 只是**多一种入口**，不是替代 —— ctc 挂了、没配、或者用户更习惯密码，
+// 都不该让 remote 登不进去。这也正是「SSO 是可选的」在服务端的含义。
+
+const SSO_AUTHORIZE_URL = process.env.SSO_AUTHORIZE_URL || "";
+const SSO_TOKEN_URL = process.env.SSO_TOKEN_URL || "";
+const SSO_USERINFO_URL = process.env.SSO_USERINFO_URL || "";
+const SSO_CLIENT_ID = process.env.SSO_CLIENT_ID || "";
+const SSO_SCOPE = process.env.SSO_SCOPE || "openid profile email";
+
+/** ctc 请求的超时。10 秒：SSO 是登录路径，挂住比失败更糟。 */
+const SSO_TIMEOUT_MS = Number(process.env.SSO_TIMEOUT_MS || 10_000);
+
+/** SSO 是否已启用（服务端配置齐全才算）。 */
+export function ssoEnabled() {
+  return Boolean(SSO_AUTHORIZE_URL && SSO_TOKEN_URL && SSO_USERINFO_URL && SSO_CLIENT_ID);
+}
+
+/**
+ * GET /api/sso/config —— 下发 SSO 配置给客户端。
+ *
+ * 未启用时返回 204：客户端据此**不显示登录入口**，
+ * 而不是显示一个点了必失败的按钮。
+ *
+ * 配置放服务端而不是烧进客户端二进制：ctc 换个域名不该需要给全家族客户端发版。
+ */
+export function handleSsoConfig(req, res) {
+  if (!ssoEnabled()) {
+    res.writeHead(204, { "cache-control": "no-store" });
+    return res.end();
+  }
+  send(res, 200, {
+    authorizeUrl: SSO_AUTHORIZE_URL,
+    tokenUrl: SSO_TOKEN_URL,
+    userInfoUrl: SSO_USERINFO_URL,
+    clientId: SSO_CLIENT_ID,
+    scope: SSO_SCOPE,
+  });
+}
+
+/** 从 ctc 的 userinfo 响应里取出「能当用户名的」那段。 */
+function deriveUsername(claims, id) {
+  const fromClaims = claims.preferred_username || claims.username || claims.nickname;
+  if (typeof fromClaims === "string" && /^[a-zA-Z0-9_\-]{3,32}$/.test(fromClaims)) {
+    return fromClaims;
+  }
+  // claims 里的名字不合 remote 的用户名规则（中文名、带空格的显示名都很常见）——
+  // 回退到基于 sub 的稳定后缀。稳定很重要：同一个 ctc 账号必须每次都得到
+  // 同一个 remote 用户名，否则会重复建号。
+  const suffix = String(id).replace(/[^a-zA-Z0-9]/g, "").slice(-12) || "sso";
+  return `sso_${suffix}`;
+}
+
+/** 按 ctc 的 sub 找 / 建本地用户。sub 可能同时出现在 `ctcSubject` 字段里。 */
+function findOrCreateSsoUser(claims, id) {
+  const existing =
+    store.findUserByCtcSubject(id) || store.findUserByUsername(deriveUsername(claims, id));
+  if (existing) {
+    // 已有账号但还没绑过 ctc subject（老账号用同一个用户名先注册过）——
+    // 补绑，把这两条身份合成一个用户。
+    if (!existing.ctcSubject) return store.updateUser(existing.id, { ctcSubject: id });
+    return Promise.resolve(existing);
+  }
+
+  const now = Date.now();
+  const newUser = {
+    id: newUserId(),
+    username: deriveUsername(claims, id),
+    // SSO 用户没有密码 —— 两个字段都留空。
+    // `verifyPassword` 在 hash 为空时返回 false，所以这类账号不能用密码登录，
+    // 那正是我们想要的：凭证只在 ctc 那边。
+    passwordHash: "",
+    passwordSalt: "",
+    ctcSubject: id,
+    createdAt: now,
+  };
+  return store.createUser(newUser).then(() => newUser);
+}
+
+/**
+ * POST /api/auth/sso —— 用 ctc 的 access_token 换 remote 的会话。
+ *
+ * 这条端点**不经过**注册闸门（限流 + 邀请码）：能通过 ctc 验证就说明
+ * 这个人已经是 ctc 的成员了，而邀请码挡的是「陌生人自助注册」。
+ * 限流仍由上游的 SSO_TIMEOUT / 常规 HTTP 层兜底。
+ */
+export async function handleSsoLogin(req, res) {
+  if (!ssoEnabled()) {
+    return send(res, 503, { error: "sso is not configured on this server" });
+  }
+
+  let body;
+  try {
+    body = await readJson(req);
+  } catch {
+    return send(res, 400, { error: "invalid json" });
+  }
+  const { ctcAccessToken } = body;
+  if (typeof ctcAccessToken !== "string" || !ctcAccessToken) {
+    return send(res, 400, { error: "ctcAccessToken required" });
+  }
+
+  // 服务端自己去 ctc 换身份 —— 见文件顶部的信任模型说明。
+  let infoRes;
+  try {
+    infoRes = await fetch(SSO_USERINFO_URL, {
+      method: "GET",
+      headers: { authorization: `Bearer ${ctcAccessToken}`, accept: "application/json" },
+      signal: AbortSignal.timeout(SSO_TIMEOUT_MS),
+    });
+  } catch (e) {
+    logger.warn("sso userinfo unreachable", { err: String(e) });
+    return send(res, 502, { error: "sso identity service unreachable" });
+  }
+
+  if (!infoRes.ok) {
+    // 401/403 = token 无效或已过期。这是**用户该看到的信息**，
+    // 不是「服务器坏了」—— 前端据此提示「重新登录」。
+    logger.warn("sso userinfo rejected token", { status: infoRes.status });
+    return send(res, 401, { error: "sso token invalid or expired" });
+  }
+
+  let claims;
+  try {
+    claims = await infoRes.json();
+  } catch {
+    return send(res, 502, { error: "sso userinfo returned non-json" });
+  }
+  const sub = claims && claims.sub;
+  if (typeof sub !== "string" || !sub) {
+    logger.warn("sso userinfo missing sub", {});
+    return send(res, 502, { error: "sso identity has no subject" });
+  }
+
+  const user = await findOrCreateSsoUser(claims, sub);
+  const sess = await issueSession(user.id);
+  logger.info("sso login", { userId: user.id, username: user.username });
+  send(res, 200, {
+    user: { id: user.id, username: user.username, createdAt: user.createdAt || Date.now() },
+    accessToken: sess.token,
+    refreshToken: sess.refreshToken,
+    expiresAt: sess.expiresAt,
+  });
+}
+
 // POST /api/auth/refresh
 export async function handleRefresh(req, res) {
   let body;

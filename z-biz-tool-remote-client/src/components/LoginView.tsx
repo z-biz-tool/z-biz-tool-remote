@@ -1,11 +1,19 @@
 import { Alert, AutoComplete, Button, Card, Form, Input, Space, Switch, Tabs, Tag, Typography, message } from "antd";
-import { ApiOutlined, DisconnectOutlined, UserAddOutlined, LoginOutlined } from "@ant-design/icons";
+import { ApiOutlined, DisconnectOutlined, UserAddOutlined, LoginOutlined, IdcardOutlined } from "@ant-design/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { signaling } from "../services/signaling";
 import { getAuth, getServerPresets, touchServer, displayUrl, cleanAddress, describeWsUrl, type ServerPreset } from "../services/storage";
 import * as api from "../services/api";
+import {
+  exchangeForRemoteSession,
+  fetchSsoConfig,
+  secureStoreAvailable,
+  ssoSessionStore,
+  startSsoLogin,
+  type SsoServerConfig,
+} from "../services/sso";
 import { t } from "../i18n";
 
 export function LoginView() {
@@ -38,6 +46,24 @@ export function LoginView() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [presets, setPresets] = useState<ServerPreset[]>([]);
   const lastConn = useRef<string | null>(null);
+
+  // ctc SSO —— **可选**：只有服务端配了 SSO 且本机能安全存 token 时才显示。
+  // 「能不能用」是探测出来的，不是写死的开关 —— 写死一个 true 会让
+  // ctc 没配好的服务器上出现一个点了必失败的按钮。
+  const [ssoConfig, setSsoConfig] = useState<SsoServerConfig | null>(null);
+  const [ssoBusy, setSsoBusy] = useState(false);
+
+  // 拉 SSO 配置：地址变了就重拉（不同服务器配不配 SSO 是各自的事）。
+  useEffect(() => {
+    let alive = true;
+    setSsoConfig(null);
+    const base = api.serverUrlToHttpBase(describeWsUrl(serverUrl).url || "");
+    if (!base) return;
+    void fetchSsoConfig(base).then((cfg) => {
+      if (alive && cfg) setSsoConfig(cfg);
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [serverUrl]);
 
   // Refresh preset list whenever the field changes (so we can pick from the dropdown)
   useEffect(() => {
@@ -158,6 +184,67 @@ export function LoginView() {
     e.preventDefault();
     doAuth();
   };
+
+  /**
+   * 用 ctc 账号登录。
+   *
+   * 与账号密码登录是**两条平行的路**：SSO 只是多一种入口，不是替代。
+   * 拿到 ctc 的 access_token 后仍要向本服务端换一次会话 ——
+   * 本服务端的 session token 才是后续 WebSocket 与 API 用的凭据。
+   */
+  async function doSsoLogin() {
+    if (!ssoConfig) return;
+    const raw = serverUrl.trim();
+    const plan = describeWsUrl(raw);
+    if (plan.error) {
+      message.error(plan.error, 8);
+      return;
+    }
+    // OS 密钥库不可用就不让走这条路：token 只能落明文存储，
+    // 那比没有 SSO 更糟 —— 与其做了个假的安全，不如不做。
+    if (!(await secureStoreAvailable())) {
+      message.error("本机没有可用的系统密钥库，无法安全保存登录态 —— 请改用账号密码登录");
+      return;
+    }
+
+    setSsoBusy(true);
+    try {
+      const result = await startSsoLogin(ssoConfig);
+      if (!result.ok) {
+        message.error(result.reason, 8);
+        setConnection("offline");
+        return;
+      }
+
+      // 拿 ctc 的 token 换本服务端的会话 —— 服务端会自己去 ctc 核实身份。
+      const base = api.serverUrlToHttpBase(plan.url);
+      const sess = await exchangeForRemoteSession(base, result.value.accessToken);
+
+      await ssoSessionStore.save(result.value);
+      touchServer(plan.url);
+      update({ serverUrl: cleanAddress(raw), autoConnect });
+      setConnection("connecting");
+      signaling.setReconnectInterval(settings.reconnectInterval);
+      signaling.connect({
+        url: plan.url,
+        deviceId,
+        deviceName: deviceName || sess.user.username,
+        token: sess.accessToken,
+      });
+      if (!plan.secure) {
+        message.warning(
+          "当前使用明文连接（ws://）：屏幕画面与键鼠事件在链路上是明文。公网使用请改用 TLS（wss://）。",
+          8
+        );
+      }
+    } catch (e: any) {
+      const reason = e?.message || "unknown";
+      message.error(`用 ctc 账号登录失败：${reason}`);
+      setConnection("offline");
+    } finally {
+      setSsoBusy(false);
+    }
+  }
 
   const onDisconnect = () => {
     signaling.disconnect();
@@ -321,9 +408,31 @@ export function LoginView() {
               </Button>
             )}
           </Form.Item>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {t("toast.connectedAs", { id: deviceId })}
-          </Typography.Text>
+          <Form.Item>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {t("toast.connectedAs", { id: deviceId })}
+            </Typography.Text>
+          </Form.Item>
+
+          {/* ctc 统一登录 —— **可选**入口。
+              只有服务端配了 SSO 才渲染：没配时这里是空的，
+              不会出现一个点了必失败的按钮（那比没有入口更糟）。 */}
+          {ssoConfig && connection !== "online" && (
+            <Form.Item style={{ marginTop: 8 }}>
+              <Button
+                icon={<IdcardOutlined />}
+                onClick={() => void doSsoLogin()}
+                loading={ssoBusy}
+                disabled={busy}
+                block
+              >
+                用 ctc 账号登录
+              </Button>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                走公司统一身份，不需要在这台机器上记住密码。
+              </Typography.Text>
+            </Form.Item>
+          )}
         </Form>
       </Card>
     </div>

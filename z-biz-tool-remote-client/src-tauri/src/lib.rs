@@ -2,6 +2,7 @@ mod capture;
 mod commands;
 mod input;
 mod persistent_storage;
+mod sso;
 
 use tauri::Manager;
 
@@ -21,6 +22,10 @@ pub fn run() {
             cap_hub::receiver::handle_second_instance(app, &argv);
         }))
         .manage(zbiz_pending.clone())
+        // SSO（ctc 统一登录）：回环服务器 + 开浏览器 + OS 密钥库。
+        // 登录态走 OS 密钥库，不落 localStorage —— 后者是明文 JSON，
+        // 任何能读用户目录的进程都能拿到 token。
+        .manage(sso::SsoState::default())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -28,6 +33,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         // 更新安装完成后的「立即重启」
         .plugin(tauri_plugin_process::init())
+        // 开浏览器：SSO 要跳 ctc 授权页。shell 的 open 在 v2.3 起已 deprecated。
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::capture_screen,
             commands::capture_monitor,
@@ -40,6 +47,14 @@ pub fn run() {
             persistent_storage::get_state_path,
             persistent_storage::clear_persistent_state,
             zbiz_take_pending,
+            sso::sso_start_callback,
+            sso::sso_wait_callback,
+            sso::sso_cancel_callback,
+            sso::sso_open_browser,
+            sso::sso_set_tokens,
+            sso::sso_get_tokens,
+            sso::sso_clear_tokens,
+            sso::sso_secure_store_available,
         ])
         .setup(move |app| {
             cap_hub::receiver::seed_cold_start(app.handle(), &zbiz_pending);

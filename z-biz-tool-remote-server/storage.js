@@ -87,9 +87,28 @@ export function findUserByUsername(username) {
 export function findUserById(id) {
   return state.users.find((u) => u.id === id) || null;
 }
-export function createUser({ id, username, passwordHash, passwordSalt, createdAt }) {
-  state.users.push({ id, username, passwordHash, passwordSalt, createdAt });
+export function createUser({ id, username, passwordHash, passwordSalt, createdAt, ctcSubject }) {
+  state.users.push({ id, username, passwordHash, passwordSalt, createdAt, ctcSubject: ctcSubject || null });
   return persist().then(() => ({ id, username, createdAt }));
+}
+
+/**
+ * 改用户记录。
+ *
+ * 目前只为「老账号首次绑上 ctc subject」服务：用户先用账号密码注册过，
+ * 之后又用同一个用户名走了 SSO —— 这时要把两条身份合成一条。
+ */
+export function updateUser(id, patch) {
+  const u = findUserById(id);
+  if (!u) return Promise.resolve(null);
+  Object.assign(u, patch);
+  return persist().then(() => u);
+}
+
+/** 按 ctc 的 subject 找用户（SSO 登录用）。 */
+export function findUserByCtcSubject(subject) {
+  if (!subject) return null;
+  return state.users.find((u) => u.ctcSubject === subject) || null;
 }
 
 // Sessions
