@@ -57,6 +57,15 @@ services:
       INVITE_CODE: "${INVITE_CODE:-}"
       REGISTER_RATE_LIMIT: "${REGISTER_RATE_LIMIT:-5}"
       REGISTER_RATE_WINDOW_MS: "${REGISTER_RATE_WINDOW_MS:-600000}"
+      # ctc 统一 SSO：**全部留空 = 未启用**（GET /api/sso/config 返 204，
+      # 客户端不显示 SSO 入口）。缺任何一项都算未启用 —— 半套配置比没有更糟。
+      # 端点配置放服务端，不烧进客户端：ctc 换域名不该需要给全家族客户端发版。
+      SSO_AUTHORIZE_URL: "${SSO_AUTHORIZE_URL:-}"
+      SSO_TOKEN_URL: "${SSO_TOKEN_URL:-}"
+      SSO_USERINFO_URL: "${SSO_USERINFO_URL:-}"
+      SSO_CLIENT_ID: "${SSO_CLIENT_ID:-}"
+      SSO_SCOPE: "${SSO_SCOPE:-openid profile email}"
+      SSO_TIMEOUT_MS: "${SSO_TIMEOUT_MS:-10000}"
       # 健康检查地址（可留空：healthcheck.js 会自动尝试 https 再 http）
       HEALTHCHECK_URL: "${HEALTHCHECK_URL:-}"
     volumes:

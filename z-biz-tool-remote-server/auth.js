@@ -299,9 +299,26 @@ const SSO_SCOPE = process.env.SSO_SCOPE || "openid profile email";
 /** ctc 请求的超时。10 秒：SSO 是登录路径，挂住比失败更糟。 */
 const SSO_TIMEOUT_MS = Number(process.env.SSO_TIMEOUT_MS || 10_000);
 
-/** SSO 是否已启用（服务端配置齐全才算）。 */
-export function ssoEnabled() {
-  return Boolean(SSO_AUTHORIZE_URL && SSO_TOKEN_URL && SSO_USERINFO_URL && SSO_CLIENT_ID);
+/**
+ * SSO 是否已启用（服务端配置齐全才算）。
+ *
+ * @param cfg 可选：直接传入配置以便测试。默认读环境变量。
+ *   缺任何一项都算「未启用」—— 半套配置比没有配置更糟：
+ *   服务端会 200 下发一份残缺的配置，客户端据此显示入口、用户点了、然后中途失败。
+ */
+export function ssoEnabled(cfg = null) {
+  const c = cfg ?? {
+    SSO_AUTHORIZE_URL,
+    SSO_TOKEN_URL,
+    SSO_USERINFO_URL,
+    SSO_CLIENT_ID,
+  };
+  return Boolean(
+    c.SSO_AUTHORIZE_URL &&
+      c.SSO_TOKEN_URL &&
+      c.SSO_USERINFO_URL &&
+      c.SSO_CLIENT_ID
+  );
 }
 
 /**

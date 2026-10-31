@@ -224,6 +224,83 @@ async function main() {
     }
   }
 
+  // ── C 组：跨端契约（服务端下发的配置必须满足客户端的判据）─────────
+  //
+  // 客户端的判据在 `z-biz-tool-shared/src/sso/oauth.ts` 的 `missingSsoConfigFields`：
+  // authorizeUrl / tokenUrl / clientId / scope **缺任一项就当「未启用」**，不显示入口。
+  // 服务端这边必须保证**下发的配置一定是齐全的** —— 否则用户会看到入口、点了、
+  // 然后在中途失败（半套配置比没有配置更糟）。
+  //
+  // 判据在两端各写一份会漂移，所以这条用例把**客户端那份判据抄过来当断言**：
+  // 哪天真改了协议层的必填项，这条会红，提醒同步。
+  {
+    const REQUIRED_FOR_CLIENT = ["authorizeUrl", "tokenUrl", "clientId", "scope"];
+    const port = 19203;
+    const child = await startServer(port, SSO_CONFIG);
+    try {
+      const cfg = await get(port, "/api/sso/config");
+      assert(cfg.status === 200, `配了以后 config 应 200，实际 ${cfg.status}`);
+      for (const k of REQUIRED_FOR_CLIENT) {
+        assert(
+          typeof cfg.body[k] === "string" && cfg.body[k].trim(),
+          `服务端下发的配置缺 ${k} ⇒ 客户端会当「未启用」不显示入口`
+        );
+      }
+      console.log("[t] 下发的配置满足客户端必填判据 ✓");
+
+      // 反向：服务端的「已启用」条件必须**不少于**客户端的必填项。
+      // 若服务端比客户端宽松，它会 200 下发半套配置 → 客户端静默不显示入口，
+      // 用户只会觉得「SSO 按钮怎么不见了」，查不出原因。
+      //
+      // 比对的是**环境变量名**（服务端判据的真实来源），通过一张映射表对上
+      // 客户端的小驼峰字段名 —— 两套命名，直接比会得到无意义的结论。
+      const CLIENT_FIELD_TO_ENV = {
+        authorizeUrl: "SSO_AUTHORIZE_URL",
+        tokenUrl: "SSO_TOKEN_URL",
+        clientId: "SSO_CLIENT_ID",
+        scope: "SSO_SCOPE",
+      };
+      for (const [field, envName] of Object.entries(CLIENT_FIELD_TO_ENV)) {
+        assert(
+          envName in SSO_CONFIG && String(SSO_CONFIG[envName]).trim(),
+          `客户端必填 ${field}，但服务端的启用条件没看 ${envName} ⇒ 会下发半套配置`
+        );
+      }
+      console.log("[t] 服务端启用条件 ⊇ 客户端必填项 ✓");
+
+      // ── 阴性对照：判据自己得有牙齿 ────────────────────────────────
+      // 上面的映射检查只验「配置项名对得上」，验不出 `ssoEnabled` 的**逻辑**被改坏
+      // （把 && 改成 || 那种）。所以直接测判据本身：少任何一项都必须判「未启用」。
+      //
+      // 这条必须能被单独打红 —— 判据被改成永真时，门禁会安静地不再报破损，
+      // 那比门禁误报更危险（大家会把命令塞进预留清单）。
+      const { ssoEnabled } = await import("../auth.js");
+      const ONE_OFF = ["SSO_AUTHORIZE_URL", "SSO_TOKEN_URL", "SSO_USERINFO_URL", "SSO_CLIENT_ID"];
+      const base = {
+        SSO_AUTHORIZE_URL: "https://ctc.example.com/authorize",
+        SSO_TOKEN_URL: "https://ctc.example.com/token",
+        SSO_USERINFO_URL: "https://ctc.example.com/userinfo",
+        SSO_CLIENT_ID: "z-biz-tool-remote",
+      };
+      // 全齐 ⇒ 已启用
+      assert(ssoEnabled(base), "配置齐全时 ssoEnabled 应为 true");
+      // 少任何一项 ⇒ 未启用
+      for (const k of ONE_OFF) {
+        const partial = { ...base };
+        delete partial[k];
+        assert(
+          !ssoEnabled(partial),
+          `少 ${k} 时 ssoEnabled 必须为 false（否则会 200 下发半套配置）`
+        );
+      }
+      // 空串视同缺
+      assert(!ssoEnabled({ ...base, SSO_CLIENT_ID: "" }), "空串视同缺");
+      console.log("[t] ssoEnabled 判据：少任一项 ⇒ 未启用 ✓");
+    } finally {
+      child.kill();
+    }
+  }
+
   ctc.close();
   console.log("\nALL SSO CHECKS PASSED ✓");
 }

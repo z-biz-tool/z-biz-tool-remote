@@ -15,6 +15,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { missingSsoConfigFields } from "z-biz-tool-shared/sso";
 import { bytesToBase64Url, fetchSsoConfig } from "../src/services/sso.ts";
 
 /* ------------------------------------------------------------------ *
@@ -103,7 +104,13 @@ test("非 JSON 响应返回 null", async () => {
 
 // 这条是本文件**最重要**的用例：少任何一项都必须当作「没启用」。
 // 半套配置 = 显示入口 → 点了 → 中途失败，比不显示入口糟得多。
-for (const field of ["authorizeUrl", "tokenUrl", "clientId", "scope"] as const) {
+//
+// 必填项清单**不是手抄的** —— 它取自共享层的 `missingSsoConfigFields`。
+// 协议层改必填项，这里自动跟着变；手抄一份就会漂移（漂了以后客户端与服务端
+// 对「什么算配好了」各执一词，而这种分裂**没有编译错误可暴露**）。
+const REQUIRED_FIELDS = ["authorizeUrl", "tokenUrl", "clientId", "scope"] as const;
+
+for (const field of REQUIRED_FIELDS) {
   test(`缺 ${field} 即视为未启用（不显示入口）`, async () => {
     const partial = { ...FULL_CONFIG } as Record<string, string>;
     delete partial[field];
@@ -119,6 +126,26 @@ for (const field of ["authorizeUrl", "tokenUrl", "clientId", "scope"] as const) 
     }
   });
 }
+
+test("必填项清单与共享层判据一致（防手抄漂移）", () => {
+  // 共享层说缺哪些就是缺哪些 —— 客户端的清单必须是它的子集，
+  // 且**不多不少**：多一项会让本该能用的配置被判成未启用。
+  const missing = missingSsoConfigFields(FULL_CONFIG, false);
+  assert.deepEqual(
+    [...missing].sort(),
+    [],
+    `完整配置不该被判缺字段，实际缺：${missing.join("、")}`
+  );
+  // 共享层判「缺」时，客户端也必须判「缺」。
+  for (const field of REQUIRED_FIELDS) {
+    const partial = { ...FULL_CONFIG } as Record<string, string>;
+    delete partial[field];
+    assert.ok(
+      missingSsoConfigFields(partial, false).includes(field),
+      `共享层应认为缺 ${field}`
+    );
+  }
+});
 
 test("字段为空串也算缺（服务端可能只写了环境变量占位）", async () => {
   const restore = stubFetch(200, JSON.stringify({ ...FULL_CONFIG, clientId: "" }));

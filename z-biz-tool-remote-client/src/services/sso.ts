@@ -17,6 +17,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
   authorizeWithSso,
+  missingSsoConfigFields,
   SsoSessionStore,
   type SecureStore,
   type SsoConfig,
@@ -73,12 +74,19 @@ export async function fetchSsoConfig(base: string): Promise<SsoServerConfig | nu
   const c = json as Record<string, unknown>;
   // 缺任何一项都当作「没启用」—— 半套配置比没有配置更糟：
   // 用户会看到入口、点了、然后在中途失败。
+  //
+  // **判据取自共享层**，不手抄一份 —— 手抄的判据必然漂移
+  // （协议层已经有一份 `missingSsoConfigFields`，抄一份就多一个能各自漂移的点）。
   const str = (k: string): string => (typeof c[k] === "string" ? (c[k] as string) : "");
   const authorizeUrl = str("authorizeUrl");
   const tokenUrl = str("tokenUrl");
   const clientId = str("clientId");
   const scope = str("scope");
-  if (!authorizeUrl || !tokenUrl || !clientId || !scope) return null;
+  // `redirectUri` 不在这里判：它由客户端自己拼（本地回环端口由内核分配），
+  // 服务端**不**下发 —— 所以判它必然报「缺」。
+  if (missingSsoConfigFields({ authorizeUrl, tokenUrl, clientId, scope }, false).length > 0) {
+    return null;
+  }
 
   return {
     authorizeUrl,
