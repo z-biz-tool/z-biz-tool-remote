@@ -300,6 +300,18 @@ const SSO_SCOPE = process.env.SSO_SCOPE || "openid profile email";
 const SSO_TIMEOUT_MS = Number(process.env.SSO_TIMEOUT_MS || 10_000);
 
 /**
+ * 回环回调的**固定端口**（可选，默认 0 = 由客户端内核动态分配）。
+ *
+ * 绝大多数 OIDC 服务端要求 `redirect_uri` 与预登记值**精确匹配**，
+ * 而动态端口每次登录都不同 ⇒ 这类服务端必须指定一个固定端口，
+ * 并把 `http://127.0.0.1:<该端口>/callback` 登记到 ctc 侧。
+ *
+ * 留空 = 动态端口（端口不可预测，更安全），但要求 ctc 侧允许
+ * 「回环地址 + 任意端口」。
+ */
+const SSO_REDIRECT_PORT = Number(process.env.SSO_REDIRECT_PORT || 0);
+
+/**
  * SSO 是否已启用（服务端配置齐全才算）。
  *
  * @param cfg 可选：直接传入配置以便测试。默认读环境变量。
@@ -340,6 +352,9 @@ export function handleSsoConfig(req, res) {
     userInfoUrl: SSO_USERINFO_URL,
     clientId: SSO_CLIENT_ID,
     scope: SSO_SCOPE,
+    // 只在指定了固定端口时才下发 —— 客户端据此决定绑固定端口还是动态端口。
+    // 下发 0 会被客户端当成「没给」，语义等价于不传。
+    ...(SSO_REDIRECT_PORT > 0 ? { redirectPort: SSO_REDIRECT_PORT } : {}),
   });
 }
 

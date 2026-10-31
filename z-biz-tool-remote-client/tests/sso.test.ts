@@ -59,6 +59,44 @@ test("配置齐全时返回配置", async () => {
   }
 });
 
+test("固定回环端口：给了就透传，没给就是 undefined（= 动态端口）", async () => {
+  // 多数 OIDC 服务端要求 redirect_uri 与预登记值精确匹配 ⇒ 需要能指定固定端口。
+  // 但**没给时必须是不给**：客户端把「没给」与「0」都当成动态端口，
+  // 服务端若把 0 也下发，语义就分叉了。
+  const restore = stubFetch(200, JSON.stringify({ ...FULL_CONFIG, redirectPort: 17888 }));
+  try {
+    const cfg = await fetchSsoConfig("https://srv.example.com");
+    assert.ok(cfg);
+    assert.equal(cfg.redirectPort, 17888, "应透传固定端口");
+  } finally {
+    restore();
+  }
+
+  const restore2 = stubFetch(200, JSON.stringify(FULL_CONFIG));
+  try {
+    const cfg = await fetchSsoConfig("https://srv.example.com");
+    assert.ok(cfg);
+    assert.equal(cfg.redirectPort, undefined, "没给时不该凭空造一个");
+  } finally {
+    restore2();
+  }
+});
+
+test("非法固定端口（0 / 负数 / 非整数）一律当作没给", async () => {
+  // 服务端配错时不该让客户端去绑一个非法端口 —— 那会让登录在起服务那步就失败，
+  // 报错还不指向真正的原因（ctc 那边 redirect_uri 也得同步改）。
+  for (const bad of [0, -1, 1.5, "17888" as unknown as number]) {
+    const restore = stubFetch(200, JSON.stringify({ ...FULL_CONFIG, redirectPort: bad }));
+    try {
+      const cfg = await fetchSsoConfig("https://srv.example.com");
+      assert.ok(cfg, `配置仍应有效（${String(bad)} 只是端口非法）`);
+      assert.equal(cfg.redirectPort, undefined, `非法端口 ${String(bad)} 应被忽略`);
+    } finally {
+      restore();
+    }
+  }
+});
+
 test("userInfoUrl 可选 —— 不给也应算配置完整", async () => {
   const { userInfoUrl: _omitted, ...withoutUserInfo } = FULL_CONFIG;
   const restore = stubFetch(200, JSON.stringify(withoutUserInfo));

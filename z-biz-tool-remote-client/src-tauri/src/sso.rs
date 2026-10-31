@@ -52,11 +52,20 @@ impl Default for SsoState {
 ///
 /// 前端必须用这个端口去拼 `redirect_uri` —— 端口由内核分配，
 /// 不是配置里写死的那个。
+///
+/// @param fixed_port 固定端口（0 / 不给 = 由内核动态分配）。
+///   绝大多数 OIDC 服务端要求 `redirect_uri` 与预登记值**精确匹配**，
+///   而动态端口每次登录都不同 ⇒ 这种场景必须指定固定端口，
+///   并把同一个回环地址登记到 ctc 侧。默认仍是动态（端口不可预测）。
 #[tauri::command]
-pub async fn sso_start_callback(state: State<'_, SsoState>) -> Result<u16, String> {
-    let server = CallbackServer::start(
+pub async fn sso_start_callback(
+    state: State<'_, SsoState>,
+    fixed_port: Option<u16>,
+) -> Result<u16, String> {
+    let server = CallbackServer::start_on_port(
         cap_sso::DEFAULT_CALLBACK_PATH,
         Duration::from_secs(CALLBACK_TIMEOUT_SECS),
+        fixed_port.unwrap_or(0),
     )
     .map_err(|e| format!("起不来本地回调服务：{}", e))?;
     let port = server.port();

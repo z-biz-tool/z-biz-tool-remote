@@ -32,6 +32,17 @@ export interface SsoServerConfig {
   userInfoUrl?: string;
   clientId: string;
   scope: string;
+  /**
+   * 回环回调的**固定端口**（可选）。
+   *
+   * 绝大多数 ctc/OIDC 服务端要求 `redirect_uri` 与预登记值**精确匹配**，
+   * 而回环端口默认由内核动态分配（每次登录都不同）⇒ 这种情况下必须给一个
+   * 固定端口，并把同一个地址登记到 ctc 侧。
+   *
+   * 不给（或给 0）= 动态端口。动态端口更安全（端口不可预测），
+   * 但要求 ctc 侧允许「回环地址 + 任意端口」。
+   */
+  redirectPort?: number;
 }
 
 /**
@@ -94,6 +105,11 @@ export async function fetchSsoConfig(base: string): Promise<SsoServerConfig | nu
     userInfoUrl: typeof c.userInfoUrl === "string" ? (c.userInfoUrl as string) : undefined,
     clientId,
     scope,
+    // 固定端口可选：非正整数视作「没给」= 动态端口。
+    redirectPort:
+      typeof c.redirectPort === "number" && Number.isInteger(c.redirectPort) && c.redirectPort > 0
+        ? c.redirectPort
+        : undefined,
   };
 }
 
@@ -191,7 +207,13 @@ export async function startSsoLogin(
   config: SsoServerConfig,
 ): Promise<Awaited<ReturnType<typeof authorizeWithSso>>> {
   // 先绑端口、拿实际端口，再去走流程。
-  const port = await invoke<number>("sso_start_callback");
+  //
+  // `redirectPort` 存在时绑那个固定端口 —— 绝大多数 OIDC 服务端要求
+  // redirect_uri 与预登记值精确匹配，动态端口每次都不同就匹配不上。
+  // 不给时由内核分配（端口不可预测，更安全）。
+  const port = await invoke<number>("sso_start_callback", {
+    fixedPort: config.redirectPort ?? 0,
+  });
   const env = createTauriSsoEnvironment(port);
   return await authorizeWithSso({ ...config, redirectUri: env.redirectUri }, env);
 }

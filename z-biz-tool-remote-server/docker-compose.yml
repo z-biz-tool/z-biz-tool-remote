@@ -66,6 +66,9 @@ services:
       SSO_CLIENT_ID: "${SSO_CLIENT_ID:-}"
       SSO_SCOPE: "${SSO_SCOPE:-openid profile email}"
       SSO_TIMEOUT_MS: "${SSO_TIMEOUT_MS:-10000}"
+      # 回环回调的固定端口（0 = 动态）。多数 OIDC 服务端要求 redirect_uri
+      # 与预登记值精确匹配 ⇒ 那种场景必须指定，并把同一个地址登记到 ctc 侧。
+      SSO_REDIRECT_PORT: "${SSO_REDIRECT_PORT:-}"
       # 健康检查地址（可留空：healthcheck.js 会自动尝试 https 再 http）
       HEALTHCHECK_URL: "${HEALTHCHECK_URL:-}"
     volumes:

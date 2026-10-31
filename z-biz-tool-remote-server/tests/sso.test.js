@@ -301,6 +301,43 @@ async function main() {
     }
   }
 
+  // ── D 组：回环回调的固定端口 ─────────────────────────────────────
+  //
+  // 多数 OIDC 服务端要求 redirect_uri 与预登记值**精确匹配** ⇒ 需要能下发一个
+  // 固定端口。默认（不配）必须**不下发**该字段：客户端把 0 当「没给」= 动态端口。
+  {
+    const port = 19204;
+    // 不配 SSO_REDIRECT_PORT ⇒ 不下发 redirectPort
+    const child = await startServer(port, SSO_CONFIG);
+    try {
+      const cfg = await get(port, "/api/sso/config");
+      assert(cfg.status === 200, `config 应 200，实际 ${cfg.status}`);
+      assert(
+        cfg.body.redirectPort === undefined,
+        `没配固定端口时不该下发 redirectPort，实际 ${cfg.body.redirectPort}`
+      );
+      console.log("[t] 未配固定端口 ⇒ 不下发 redirectPort ✓");
+    } finally {
+      child.kill();
+    }
+  }
+  {
+    const port = 19205;
+    // 配了 ⇒ 必须下发，且值要对
+    const child = await startServer(port, { ...SSO_CONFIG, SSO_REDIRECT_PORT: "17888" });
+    try {
+      const cfg = await get(port, "/api/sso/config");
+      assert(cfg.status === 200, `config 应 200，实际 ${cfg.status}`);
+      assert(
+        cfg.body.redirectPort === 17888,
+        `应下发固定端口 17888，实际 ${cfg.body.redirectPort}`
+      );
+      console.log("[t] 配了固定端口 ⇒ 下发 redirectPort=17888 ✓");
+    } finally {
+      child.kill();
+    }
+  }
+
   ctc.close();
   console.log("\nALL SSO CHECKS PASSED ✓");
 }
