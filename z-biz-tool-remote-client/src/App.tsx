@@ -26,6 +26,10 @@ import {
 import * as api from "./services/api";
 import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { startDeepLinkReceiver, ZBIZ_TAKE_PENDING } from "z-biz-tool-shared/protocol";
+import type { Handoff } from "z-biz-tool-shared/protocol";
+import { resolveRemoteDeepLink } from "./_shared/deepLink";
 
 const REFRESH_SKEW_MS = 30_000; // refresh 30s before actual expiry to avoid races
 
@@ -479,6 +483,8 @@ export default function App() {
     >
       <AntdApp>
         <div className="app-shell">
+          {/* 深链接线：放在 AntdApp 内部，message 走 App.useApp()（静态 message 挂全局 holder，不吃本页暗色主题） */}
+          <DeepLinkBridge />
           <ConnectionBar />
           <div className="app-content">{content}</div>
         </div>
@@ -493,4 +499,87 @@ function deviceNameHint(): string {
     userAgentData?: { platform?: string };
   };
   return nav.userAgentData?.platform || nav.platform || "";
+}
+
+/**
+ * 把设备定位意图落到界面上：切到主界面 + 交给设备列表的搜索框。
+ *
+ * 只做「凑到一起」这一步，**不发起控制请求** ——
+ * 深链是外部可触发的入口，URL 直接触发远控等于权限升级。
+ */
+function applyDeviceQuery(query: string) {
+  const st = useSessionStore.getState();
+  st.setView({ kind: "main" });
+  st.setDeepLinkDeviceQuery(query);
+}
+
+/**
+ * zbiz:// 深链接收侧。
+ *
+ * **机制**（冷启动补取 + `zbiz-open` 监听 + 不静默吞掉）在共享层
+ * `z-biz-tool-shared/protocol` 的 `startDeepLinkReceiver` 里；
+ * **语义**（remote 该做什么）在本仓 `_shared/deepLink.ts`，通过 translate 注入。
+ *
+ * 时序：深链常常在冷启动时先到，而本应用要先 `hydrateStorage()` 再登录、
+ * 登录成功（REGISTER_SUCCESS）后 view 才从 login 变成 main。
+ * 所以 view 还在 login 时先把定位意图攒在 pending 里，
+ * 等 view 离开 login 再落地 —— 直接落地只会得到「没登录」，用户看到的是「点了没反应」。
+ *
+ * 正在会话中（hosting / controlling）时**不**打断：那是一路正在进行的屏幕与键鼠链路。
+ */
+function DeepLinkBridge() {
+  const { message } = AntdApp.useApp();
+  const view = useSessionStore((s) => s.view);
+  const pending = useRef<string | null>(null);
+
+  useEffect(() => {
+    const stop = startDeepLinkReceiver({
+      productId: "remote",
+      invoke: () => invoke<Handoff[]>(ZBIZ_TAKE_PENDING),
+      listen: (event, handler) => listen(event, handler),
+      translate: (item) => {
+        const out = resolveRemoteDeepLink(item);
+        if (out.problem) return { ok: false, problem: out.problem };
+        return { ok: true, effect: { deviceQuery: out.deviceQuery } };
+      },
+      onProblem: (msg, item) => {
+        console.warn("[remote] 收到未适配的深链", item, msg);
+        message.warning(msg);
+      },
+      onEffect: (effect) => {
+        const query = (effect.deviceQuery as string | null) ?? null;
+        // 纯唤起：窗口已被 Rust 的 single_instance 拉到前台，没有别的要做
+        if (!query) return;
+        const st = useSessionStore.getState();
+        if (st.view.kind === "hosting" || st.view.kind === "controlling") {
+          message.warning("正在远程会话中，已忽略新的设备定位（结束后重发深链即可）");
+          return;
+        }
+        if (st.view.kind === "login") {
+          pending.current = query;
+          // 攒着不落地必须让用户知道，否则就是「点了没反应」
+          message.info(`已收到设备深链「${query}」，登录后为你定位`);
+          return;
+        }
+        applyDeviceQuery(query);
+      },
+      log: (msg, item) => console.debug("[remote] 深链", msg, item),
+    });
+    return stop;
+  }, [message]);
+
+  // 登录成功（view 离开 login）后，把攒着的定位落地
+  useEffect(() => {
+    if (!pending.current) return;
+    if (view.kind === "login") return;
+    if (view.kind === "hosting" || view.kind === "controlling") {
+      pending.current = null;
+      return;
+    }
+    const query = pending.current;
+    pending.current = null;
+    applyDeviceQuery(query);
+  }, [view]);
+
+  return null;
 }

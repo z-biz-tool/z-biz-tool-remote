@@ -89,7 +89,7 @@ function navProps(active: boolean, activate: () => void) {
 
 export function MainView() {
   const { token } = theme.useToken();
-  const { deviceId, onlineDevices, role, sessionId, setSession, setView, userId, username, setUser, connection } =
+  const { deviceId, onlineDevices, role, sessionId, setSession, setView, userId, username, setUser, connection, deepLinkDeviceQuery, setDeepLinkDeviceQuery } =
     useSessionStore();
   const [joinId, setJoinId] = useState("");
   const [joinToken, setJoinToken] = useState("");
@@ -111,6 +111,16 @@ export function MainView() {
   // 地址连不了时（格式非法 / 公网地址写了明文 ws://）httpBase 为空，
   // 下面的请求会自然失败，而不是拿一个空 base 去打相对路径。
   const httpBase = auth ? serverUrlToHttpBase(describeWsUrl(getSettings().serverUrl).url) : "";
+
+  // 深链（zbiz://remote/open?device=…）带来的设备定位：切到设备列表并填进搜索框。
+  // 只定位、不发起控制请求 —— 理由见 _shared/deepLink.ts。
+  useEffect(() => {
+    if (!deepLinkDeviceQuery) return;
+    setSection("devices");
+    setCat("mine");
+    setSearch(deepLinkDeviceQuery);
+    setDeepLinkDeviceQuery(null);
+  }, [deepLinkDeviceQuery, setDeepLinkDeviceQuery]);
 
   // 拉我的设备 + 在线设备
   const finishLoad = useCallback(() => {

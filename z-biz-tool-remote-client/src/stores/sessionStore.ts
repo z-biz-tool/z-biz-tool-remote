@@ -40,6 +40,15 @@ interface SessionStore {
   setPaused: (v: boolean) => void;
   setInputPaused: (v: boolean) => void;
   setController: (id: string | null, since?: number | null) => void;
+  /**
+   * 深链（zbiz://remote/open?device=…）带来的设备定位意图。
+   *
+   * 主界面 MainView 消费它：把设备列表的搜索框填成这个值，然后清掉。
+   * 放在 store 里而不是 App 本地 state，是因为 MainView 是被条件渲染的
+   * （view.kind === "main" 才挂载）——深链可能比它更早到达。
+   */
+  deepLinkDeviceQuery: string | null;
+  setDeepLinkDeviceQuery: (q: string | null) => void;
 }
 
 export const useSessionStore = create<SessionStore>((set) => ({
@@ -62,6 +71,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   inputPaused: false,
   controllerId: null,
   controllerSince: null,
+  deepLinkDeviceQuery: null,
 
   setView: (view) => set({ view }),
   setConnection: (connection) => set({ connection }),
@@ -90,4 +100,5 @@ export const useSessionStore = create<SessionStore>((set) => ({
   setInputPaused: (inputPaused) => set({ inputPaused }),
   setController: (controllerId, since) =>
     set({ controllerId, controllerSince: controllerId ? (since ?? Date.now()) : null }),
+  setDeepLinkDeviceQuery: (deepLinkDeviceQuery) => set({ deepLinkDeviceQuery }),
 }));
