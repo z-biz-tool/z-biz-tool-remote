@@ -18,19 +18,21 @@
 `z-biz/z-biz-tool-remote` 与上游 `z-biz-tool/z-biz-tool-remote` 的 `auth.js`/`server.js`
 blob 哈希一致），但**没重新部署**。
 
-## 1. ctc 的 4 个端点参数（2026-11-01 已解决）
+## 1. ctc 的 4 个端点参数（2026-11-01 已解决，且 ctc 已上生产）
 
-**ctc 侧的 OAuth 授权服务器已建成**（z-ctc `c20882c`，配置表方案，remote/mind 已预登记）：
+**ctc 侧的 OAuth 授权服务器已建成并部署到生产**（z-ctc `c20882c`+`e22d209`，
+k3s zifang002，公网走 kapi 边缘路由，2026-11-01 实测 400/302 正常）：
 
 | 环境变量 | 值 |
 |----------|-----|
-| `SSO_AUTHORIZE_URL` | `https://ctc.zopc.top/api/ctc/oauth/authorize` |
-| `SSO_TOKEN_URL` | `https://ctc.zopc.top/api/ctc/oauth/token` |
-| `SSO_USERINFO_URL` | `https://ctc.zopc.top/api/ctc/oauth/userinfo` |
+| `SSO_AUTHORIZE_URL` | `https://opc.zopc.top/kapi/z-ctc/api/ctc/oauth/authorize` |
+| `SSO_TOKEN_URL` | `https://opc.zopc.top/kapi/z-ctc/api/ctc/oauth/token` |
+| `SSO_USERINFO_URL` | `https://opc.zopc.top/kapi/z-ctc/api/ctc/oauth/userinfo` |
 | `SSO_CLIENT_ID` | `z-biz-tool-remote` |
 
-> ⚠ 域名按生产实际可达地址为准（ctc 部署在 8888 / context-path `/ctc` 时是
-> `https://<host>/ctc/api/ctc/oauth/...`）—— 部署时先探一下真实 URL。
+> 真值已实测：`curl -X POST https://opc.zopc.top/kapi/z-ctc/api/ctc/oauth/token`
+> （form 编码）返回 `400 {"error":"invalid_grant"}` —— 端点活着、判据在工作。
+> mind 的 `CTC_CONFIG` 已同步为同一组 URL（mind `4b730a3`）。
 
 安全基线（ctc 侧已实现并 17 例单测）：PKCE 强制 S256、redirect_uri 精确匹配
 （loopback 任意端口形态已登记 `http://127.0.0.1:*/callback`）、code 一次性 5 分钟。
