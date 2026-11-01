@@ -18,17 +18,22 @@
 `z-biz/z-biz-tool-remote` 与上游 `z-biz-tool/z-biz-tool-remote` 的 `auth.js`/`server.js`
 blob 哈希一致），但**没重新部署**。
 
-## 1. 需要 CEO 提供的东西（我拿不到）
+## 1. ctc 的 4 个端点参数（2026-11-01 已解决）
 
-ctc 侧的 4 个端点参数。**缺任何一项都等于未启用** —— 服务端会继续返回 204，
-客户端就不显示 SSO 入口（这是设计意图，不是故障）。
+**ctc 侧的 OAuth 授权服务器已建成**（z-ctc `c20882c`，配置表方案，remote/mind 已预登记）：
 
-| 环境变量 | 含义 | 从哪问 |
-|----------|------|--------|
-| `SSO_AUTHORIZE_URL` | ctc 授权页地址 | ctc 管理员 |
-| `SSO_TOKEN_URL` | ctc 令牌端点 | ctc 管理员 |
-| `SSO_USERINFO_URL` | ctc 用户信息端点 | ctc 管理员 |
-| `SSO_CLIENT_ID` | 本产品在 ctc 注册的 client id | ctc 管理员 |
+| 环境变量 | 值 |
+|----------|-----|
+| `SSO_AUTHORIZE_URL` | `https://ctc.zopc.top/api/ctc/oauth/authorize` |
+| `SSO_TOKEN_URL` | `https://ctc.zopc.top/api/ctc/oauth/token` |
+| `SSO_USERINFO_URL` | `https://ctc.zopc.top/api/ctc/oauth/userinfo` |
+| `SSO_CLIENT_ID` | `z-biz-tool-remote` |
+
+> ⚠ 域名按生产实际可达地址为准（ctc 部署在 8888 / context-path `/ctc` 时是
+> `https://<host>/ctc/api/ctc/oauth/...`）—— 部署时先探一下真实 URL。
+
+安全基线（ctc 侧已实现并 17 例单测）：PKCE 强制 S256、redirect_uri 精确匹配
+（loopback 任意端口形态已登记 `http://127.0.0.1:*/callback`）、code 一次性 5 分钟。
 
 另需 ctc 侧登记本产品的**回环回调地址**：
 
