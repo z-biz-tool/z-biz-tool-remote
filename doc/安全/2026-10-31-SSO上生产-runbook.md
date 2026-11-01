@@ -2,7 +2,7 @@
 
 > 对象：边缘机 **101.37.80.51** 上的 `z-biz-tool-remote-server`（compose 服务名 `signaling`，容器名 `z-biz-signaling`）
 > 代码提交：`cb96615`（客户端判据同源 + 服务端可测判据 + `.env`/compose 补 SSO 变量）
-> 状态：**代码已就绪，生产未生效** —— 生产跑的进程还是没有 SSO 的旧代码。
+> 状态：**✅ 已生效（2026-11-01 11:29 部署完成）** —— 见文末「§6 部署实录」。
 
 ## 0. 为什么现在还没生效
 
@@ -161,3 +161,44 @@ ps aux | grep -i "node.*server" | grep -v grep
 代码侧已全部就绪并通过门禁（客户端 81 条 / 服务端全量 / Docker 门禁修好后转绿）。
 **要 SSO 真的可用，只差两件我做不了的事**：① 给我 ctc 的 4 个端点参数；
 ② 给我生产机的 SSH 密码（或者你自己按 §2 跑一遍）。
+
+---
+
+## 6. 部署实录（2026-11-01，runbook 执行记录）
+
+实际拓扑与 §4 的猜测**不同**：不是 compose，是 **setsid nohup 裸 node**（`node src/server.js`，
+工作目录 `~/z-biz-tool-remote-server`，HOST=127.0.0.1 走边缘 nginx 反代，Node v20.18.0，ESM）。
+
+执行步骤（已全部完成）：
+
+1. **免密**：CEO 提供密码，`ssh-copy-id` 打通（id_ed25519）。
+2. **备份**：`~/zbt-remote-backup-20261101-112819.tar.gz`（整树 tar，排除 node_modules）+ `.env.bak-20261101`。
+3. **blob 核对**：上游 `z-biz-tool/z-biz-tool-remote/z-biz-tool-remote-server/*.js`（平铺布局）
+   与生产 `src/*.js` 逐文件 `git hash-object` 对比 —— 五个文件全部为**纯增量**
+   （生产代码是上游旧子集：无 SSO、无 WS_MAX_PAYLOAD、无设备归属校验）。
+   依赖（package.json dependencies）完全一致 ⇒ 不需要 npm install。
+4. **覆盖**：`server.js / auth.js / storage.js / logger.js / healthcheck.js` → `src/`，
+   `node --check` 五文件语法全过。
+5. **配置**：`.env` 追加 SSO_AUTHORIZE_URL / SSO_TOKEN_URL / SSO_USERINFO_URL /
+   SSO_CLIENT_ID / SSO_SCOPE（值为 §1 的生产真值，opc.zopc.top/kapi/z-ctc）。
+   ⚠ `.env` 里的 `SSO_SCOPE=openid profile email` 含空格，`source` 时会报
+   「profile: command not found」—— 值要加引号（本次已确认不影响启动：
+   server.js 自己解析 .env 不经 source；启动日志 tokenTransport 正常）。
+6. **重启**：kill 旧 PID → `set -a; source .env; set +a; HOST=127.0.0.1 setsid nohup node src/server.js >> server.log 2>&1 &`。
+
+### 验证结果（§2.4 三条全过）
+
+| 端点 | 期望 | 实测 |
+|------|------|------|
+| `GET /health` | 200 | 200，`uptimeSec≈9`（新进程） |
+| `GET /api/sso/config` | 200 + 4 字段 | **200**，authorizeUrl/tokenUrl/userInfoUrl/clientId 齐全，无 redirectUri ✓ |
+| `GET /api/me`（无 token） | 401 | **401** ✓ |
+| `POST /api/auth/login`（假账号） | 401 | **401** `invalid username or password` ✓（账号密码入口未被顶掉） |
+
+数据完整性：storage loaded `users:3 devices:2` —— 生产数据原样保留。
+
+### 遗留（照旧记录）
+
+- 进程仍是 `setsid nohup` 直跑、**无 systemd 守护**（重启不自启）—— 建议 unit `Restart=always`。
+- `.env` 里 `SSO_SCOPE` 未加引号（下次改 .env 时顺手补）。
+- 验收信号：remote 客户端登录页现在应出现「用 ctc 账号登录」按钮。
