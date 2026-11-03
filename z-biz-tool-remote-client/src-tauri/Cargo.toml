@@ -50,7 +50,9 @@ panic = "abort"
 codegen-units = 1
 lto = true
 opt-level = "s"
-strip = true
+debug = false
+incremental = false
+strip = "symbols"
 
 [dev-dependencies]
 # 仅测试里解回 JPEG 断言用（生产路径的 base64 已随 cap-img 下沉）
